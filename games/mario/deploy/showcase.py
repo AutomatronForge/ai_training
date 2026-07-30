@@ -204,6 +204,108 @@ def pick_latest_model():
     return found[-1] if found else None
 
 
+def _run_episode(model, make_env, record=False):
+    """Play one episode. Returns (cleared, frames) where frames is a list of
+    (rgb, stats) tuples if record=True (else empty). Runs at max speed."""
+    env, unwrapped = make_env()
+    env.reset()
+    _, _, _, _, info = env.step(0)
+    prev_x, prev_y = info.get("x_pos", 40), info.get("y_pos", 79)
+    ep_reward = 0.0
+    step = 0
+    done = False
+    cleared = False
+    frames = []
+
+    while not done:
+        obs, prev_x, prev_y = build_obs(info, prev_x, prev_y, unwrapped)
+        action, _ = model.predict(obs.reshape(1, -1), deterministic=False)
+        action_int = int(action[0])
+        for _ in range(SKIP):
+            _, reward, terminated, truncated, info = env.step(action_int)
+            ep_reward += reward
+            done = terminated or truncated
+            if done:
+                break
+        if info.get("flag_get", False):
+            cleared = True
+        if record:
+            frame = unwrapped.render(mode="rgb_array")
+            if frame is not None:
+                frames.append((np.array(frame), {
+                    "x": int(info.get("x_pos", 0)),
+                    "action": ACTION_NAMES[action_int],
+                    "reward": float(ep_reward),
+                    "step": step,
+                    "flag": cleared,
+                }))
+        step += 1
+
+    env.close()
+    return cleared, frames, int(info.get("x_pos", 0)), step
+
+
+def capture_and_loop(model_path, version="v0", port=8081, fps=30, auto_latest=False):
+    """Hunt (headless, max speed) for one clean flag-clearing episode, record its
+    frames, then loop that death-free run on the browser stream forever."""
+    from stable_baselines3 import PPO
+    import gym_super_mario_bros
+    from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
+    from nes_py.wrappers import JoypadSpace
+    from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
+
+    def make_env():
+        raw = gym_super_mario_bros.make(f"SuperMarioBros-{version}")
+        raw = JoypadSpace(raw, SIMPLE_MOVEMENT)
+        return GymV21CompatibilityV0(env=raw), raw.unwrapped
+
+    model = PPO.load(model_path)
+    loaded_path = model_path
+    generation = _gen_from_path(loaded_path)
+    print(f"[showcase] Capture mode — hunting for a clean clear "
+          f"(gen {generation} steps)...")
+
+    start_server(port)
+
+    attempt = 0
+    clean_frames = None
+    while clean_frames is None:
+        attempt += 1
+        if auto_latest:  # keep hunting on the newest model
+            newest = pick_latest_model()
+            if newest and newest != loaded_path and os.path.exists(newest):
+                try:
+                    model = PPO.load(newest)
+                    loaded_path = newest
+                    generation = _gen_from_path(loaded_path)
+                    print(f"[showcase] Now hunting on gen {generation}")
+                except Exception:
+                    pass
+        cleared, frames, maxx, steps = _run_episode(model, make_env, record=True)
+        print(f"[showcase] attempt {attempt}: cleared={cleared} maxx={maxx} steps={steps}")
+        # Show a "searching" heartbeat frame so the browser isn't stuck on black
+        if frames:
+            hb_rgb, _ = frames[-1]
+            _set_frame(hb_rgb, {"x": maxx, "action": "SEARCHING", "reward": 0,
+                                "clears": 0, "episode": attempt,
+                                "generation": generation, "flag": False})
+        if cleared:
+            clean_frames = frames
+            print(f"[showcase] CLEAN CLEAR captured on attempt {attempt} "
+                  f"({len(frames)} frames). Looping it on :{port}.")
+
+    # Loop the captured clean run forever.
+    frame_time = 1.0 / fps if fps > 0 else 1 / 30
+    loop = 0
+    while True:
+        loop += 1
+        for rgb, st in clean_frames:
+            _set_frame(rgb, {**st, "clears": 1, "episode": loop,
+                             "generation": generation})
+            time.sleep(frame_time)
+        time.sleep(1.5)  # brief pause on the flagpole before replaying
+
+
 def main(model_path, version="v0", port=8081, fps=30, auto_latest=False):
     from stable_baselines3 import PPO
     import gym_super_mario_bros
@@ -302,6 +404,8 @@ if __name__ == "__main__":
     parser.add_argument("--fps", type=int, default=30, help="0 = max speed")
     parser.add_argument("--auto-latest", action="store_true",
                         help="reload the newest checkpoint between episodes")
+    parser.add_argument("--capture", action="store_true",
+                        help="hunt for one clean flag-clearing run, then loop it")
     args = parser.parse_args()
 
     model_path = args.model
@@ -311,4 +415,7 @@ if __name__ == "__main__":
         raise SystemExit("No model found. Pass --model path/to/checkpoint.zip")
 
     print(f"[showcase] Using model: {model_path}")
-    main(model_path, args.version, args.port, args.fps, args.auto_latest)
+    if args.capture:
+        capture_and_loop(model_path, args.version, args.port, args.fps, args.auto_latest)
+    else:
+        main(model_path, args.version, args.port, args.fps, args.auto_latest)

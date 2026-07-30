@@ -15,23 +15,24 @@ def load_config():
     spec.loader.exec_module(cfg)
     return cfg
 
-cfg = load_config()
+if __name__ == "__main__":
+    cfg = load_config()
 
-print(f"[entrypoint] TRAIN_MODE={cfg.TRAIN_MODE}")
-print(f"[entrypoint] N_ENVS={cfg.N_ENVS} | TOTAL_TIMESTEPS={cfg.TOTAL_TIMESTEPS}")
+    print(f"[entrypoint] TRAIN_MODE={cfg.TRAIN_MODE}")
+    print(f"[entrypoint] N_ENVS={cfg.N_ENVS} | TOTAL_TIMESTEPS={cfg.TOTAL_TIMESTEPS}")
 
-MODE = cfg.TRAIN_MODE
+    MODE = cfg.TRAIN_MODE
 
-if MODE == "pixel_v0":
-    from train_v0 import main
-    main()
-elif MODE == "pixel_v3":
-    from train_v3 import main
-    main()
-elif MODE in ("ram_v0", "ram_v3"):
-    version = MODE.split("_")[1]
-    from train_ram import main
-    main(version=version)
-else:
-    print(f"[entrypoint] Unknown TRAIN_MODE: {MODE}")
-    sys.exit(1)
+    if MODE == "pixel_v0":
+        from train_v0 import main
+        main()
+    elif MODE == "pixel_v3":
+        from train_v3 import main
+        main()
+    elif MODE in ("ram_v0", "ram_v3"):
+        version = MODE.split("_")[1]
+        from train_ram import main
+        main(version=version)
+    else:
+        print(f"[entrypoint] Unknown TRAIN_MODE: {MODE}")
+        sys.exit(1)

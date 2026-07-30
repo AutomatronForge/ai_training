@@ -12,14 +12,21 @@ Parameters:
     AllowedValues:
       - g4dn.xlarge
       - g4dn.2xlarge
-    Description: GPU instance type. 2xlarge (8 vCPU) recommended for N_ENVS=20.
+      - c7i.2xlarge
+      - c7i.4xlarge
+    Description: >
+      Instance type. GPU (g4dn.*) for pixel/CNN training. CPU-optimized (c7i.*)
+      for RAM/MLP training, which is CPU-bound (the GPU sits idle) — c7i.4xlarge
+      gives 8 physical cores (set N_ENVS~16). For a CPU instance, override AmiId
+      with a plain Ubuntu 22.04 AMI (the default DL GPU AMI is unnecessary there).
 
   # Deep Learning AMI (Ubuntu 22.04). Resolved via SSM so you don't hardcode
-  # a per-region AMI id. Override if you want a pinned AMI.
+  # a per-region AMI id. Override if you want a pinned AMI — or a plain Ubuntu
+  # 22.04 AMI when launching a CPU-optimized (c7i.*) instance.
   AmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id
-    Description: SSM path to the Deep Learning base GPU AMI (Ubuntu 22.04).
+    Description: SSM path to the Deep Learning base GPU AMI (Ubuntu 22.04). Override for CPU instances.
 
   VpcId:
     Type: AWS::EC2::VPC::Id

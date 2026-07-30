@@ -73,8 +73,12 @@ class RAMObservation(gymnasium.Wrapper):
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        self._prev_x = info.get("x_pos", 0)
-        self._prev_y = info.get("y_pos", 0)
+        # reset() returns empty info — take one step to get real values
+        obs2, _, _, _, info2 = self.env.step(0)
+        if info2:
+            info = info2
+        self._prev_x = info.get("x_pos", 40)
+        self._prev_y = info.get("y_pos", 79)
         return self._make_obs(info), info
 
     def step(self, action):

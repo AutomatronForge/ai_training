@@ -38,8 +38,8 @@ Parameters:
     Type: String
     Default: gpu-dl-ubuntu2204
     AllowedValues:
-      - gpu-dl-ubuntu2204     # Deep Learning base GPU AMI — for g4dn.* GPU instances.
-      - cpu-ubuntu2404        # Ubuntu 24.04 LTS (HVM), SSD gp3 — for CPU instances.
+      - gpu-dl-ubuntu2204 # Deep Learning base GPU AMI — for g4dn.* GPU instances.
+      - cpu-ubuntu2404 # Ubuntu 24.04 LTS (HVM), SSD gp3 — for CPU instances.
     Description: >
       AMI to launch. gpu-dl-ubuntu2204 = DL GPU AMI (use with g4dn.*).
       cpu-ubuntu2404 = Ubuntu 24.04 LTS gp3 (use with c7i/c8i.*).
@@ -129,6 +129,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
+          sleep 120
           set -euxo pipefail
           exec > >(tee /var/log/userdata.log | logger -t userdata -s 2>/dev/console) 2>&1
 

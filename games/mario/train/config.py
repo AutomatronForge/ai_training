@@ -9,9 +9,11 @@
 # passes). RAM/MLP is CPU-bound and leaves the GPU idle — don't run it here.
 TRAIN_MODE = "pixel_v0"
 
-# Number of parallel environments. g4dn.2xlarge = 8 vCPU; NES env-stepping is
-# CPU-bound even for pixel, so ~8 envs matches the cores (GPU handles the CNN).
-N_ENVS = 8
+# Number of parallel environments. "auto" = size to the box (~1 env per vCPU,
+# minus 1 for the main proc, capped 32) — so the SAME config works on any g5/g4dn
+# size without editing. Set an int to pin it (e.g. 8). NES stepping is CPU-bound,
+# so more envs than cores oversubscribes and hurts throughput.
+N_ENVS = "auto"
 
 # Total training steps (real 1-1 pixel run; CNN needs more steps than the MLP).
 TOTAL_TIMESTEPS = 10_000_000

@@ -45,7 +45,24 @@ def _load_config():
                 defaults[k] = getattr(cfg, k)
     except Exception as e:
         print(f"[train_v0] Could not load config.py ({e}) — using defaults")
+    defaults["N_ENVS"] = _resolve_n_envs(defaults["N_ENVS"])
     return defaults
+
+
+def _resolve_n_envs(n_envs):
+    """Allow N_ENVS='auto' (or None/0) to auto-size to the box.
+
+    NES env-stepping is CPU-bound, so ~1 env per vCPU is the sweet spot; going past
+    the core count oversubscribes and *reduces* throughput (measured this session:
+    14 good, 24 slower on a 16-core box). We leave 1 vCPU for the main proc / coach
+    and cap at 32 to stay sane on very large instances.
+    """
+    if isinstance(n_envs, int) and n_envs > 0:
+        return n_envs
+    cpus = os.cpu_count() or 8
+    resolved = max(1, min(32, cpus - 1))
+    print(f"[train_v0] N_ENVS='auto' -> {resolved} (detected {cpus} vCPUs)")
+    return resolved
 
 
 CFG = _load_config()

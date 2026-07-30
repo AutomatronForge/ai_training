@@ -34,30 +34,7 @@ def get_device():
     return "cpu"
 
 
-class RenderCallback(BaseCallback):
-    """Renders env 0 every N steps for the true color web viewer."""
-    def __init__(self, vec_env, verbose=0):
-        super().__init__(verbose)
-        self._vec_env = vec_env
-        self._tick = 0
-
-    def _on_step(self) -> bool:
-        self._tick += 1
-        if self._tick % 8 != 0:
-            return True
-        try:
-            frames = self._vec_env.env_method("render", indices=[0])
-            if frames and frames[0] is not None:
-                import cv2
-                frame = np.array(frames[0])
-                if frame.ndim == 3 and frame.shape[2] == 3:
-                    viewer.update_frame(0, frame, mode="rgb")
-        except Exception:
-            pass
-        return True
-
-
-
+class StatsCallback(BaseCallback):
     def __init__(self, verbose=0):
         super().__init__(verbose)
         self._rewards = []
@@ -102,6 +79,29 @@ class RenderCallback(BaseCallback):
         return True
 
 
+class RenderCallback(BaseCallback):
+    """Renders env 0 every N steps for the true color web viewer."""
+    def __init__(self, vec_env, verbose=0):
+        super().__init__(verbose)
+        self._vec_env = vec_env
+        self._tick = 0
+
+    def _on_step(self) -> bool:
+        self._tick += 1
+        if self._tick % 8 != 0:
+            return True
+        try:
+            frames = self._vec_env.env_method("render", indices=[0])
+            if frames and frames[0] is not None:
+                import cv2
+                frame = np.array(frames[0])
+                if frame.ndim == 3 and frame.shape[2] == 3:
+                    viewer.update_frame(0, frame, mode="rgb")
+        except Exception:
+            pass
+        return True
+
+
 def main(version="v0"):
     os.makedirs("models", exist_ok=True)
 
@@ -111,6 +111,7 @@ def main(version="v0"):
     manager = multiprocessing.Manager()
     shared_weights = init_shared_weights(manager, ollama_coach.DEFAULT_WEIGHTS)
 
+    viewer.start(n_envs=N_ENVS)
     stats_cb = StatsCallback()
     ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights, interval=5000)
 
@@ -127,12 +128,12 @@ def main(version="v0"):
     ]
 
     model = PPO(
-        "MlpPolicy",   # small MLP instead of CNN — trains much faster
+        "MlpPolicy",
         env,
         device=device,
         n_steps=1024,
         batch_size=512,
-        n_epochs=8,    # more epochs since data is cheap
+        n_epochs=8,
         learning_rate=3e-4,
         clip_range=0.2,
         ent_coef=0.01,
@@ -141,6 +142,7 @@ def main(version="v0"):
     )
 
     print(f"Training started (RAM obs, {version}).")
+    print("  Live viewer:  http://localhost:8080")
     print("  TensorBoard: http://localhost:6006\n")
 
     model.learn(total_timesteps=2_000_000, callback=callbacks)

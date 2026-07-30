@@ -34,7 +34,30 @@ def get_device():
     return "cpu"
 
 
-class StatsCallback(BaseCallback):
+class RenderCallback(BaseCallback):
+    """Renders env 0 every N steps for the true color web viewer."""
+    def __init__(self, vec_env, verbose=0):
+        super().__init__(verbose)
+        self._vec_env = vec_env
+        self._tick = 0
+
+    def _on_step(self) -> bool:
+        self._tick += 1
+        if self._tick % 8 != 0:
+            return True
+        try:
+            frames = self._vec_env.env_method("render", indices=[0])
+            if frames and frames[0] is not None:
+                import cv2
+                frame = np.array(frames[0])
+                if frame.ndim == 3 and frame.shape[2] == 3:
+                    viewer.update_frame(0, frame, mode="rgb")
+        except Exception:
+            pass
+        return True
+
+
+
     def __init__(self, verbose=0):
         super().__init__(verbose)
         self._rewards = []
@@ -93,9 +116,6 @@ def main(version="v0"):
 
     env = make_ram_vec_env(n_envs=N_ENVS, version=version)
 
-    # RAM training has no pixel obs — render env 0 directly for true color viewer
-    viewer.start_ram_render(env)
-
     callbacks = [
         CheckpointCallback(
             save_freq=50_000,
@@ -103,6 +123,7 @@ def main(version="v0"):
             name_prefix=f"mario_ram_{version}_ppo",
         ),
         stats_cb,
+        RenderCallback(env),
     ]
 
     model = PPO(

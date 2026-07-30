@@ -97,27 +97,3 @@ def start(n_envs=20):
     )
     t.start()
     print("Viewer running at http://localhost:8080")
-
-
-def start_ram_render(vec_env, interval=8):
-    """For RAM training — render env 0 directly since there's no pixel obs.
-    Runs in background thread, calls vec_env.render() every `interval` steps."""
-    def _render_loop():
-        step = 0
-        while True:
-            step += 1
-            time.sleep(1 / 30)
-            if step % interval != 0:
-                continue
-            try:
-                frames = vec_env.env_method("render", indices=[0])
-                if frames and frames[0] is not None:
-                    import cv2
-                    frame = np.array(frames[0])
-                    if frame.ndim == 3 and frame.shape[2] == 3:
-                        update_frame(0, frame, mode="rgb")
-            except Exception:
-                pass
-
-    t = threading.Thread(target=_render_loop, daemon=True)
-    t.start()

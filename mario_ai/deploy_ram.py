@@ -289,8 +289,44 @@ def main(model_path: str, fps: int = 30):
 
 
 if __name__ == "__main__":
+    import os
+    import glob
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="models/mario_ram_v0_final.zip")
+    parser.add_argument("--model", default=None)
     parser.add_argument("--fps", type=int, default=30)
     args = parser.parse_args()
-    main(args.model, args.fps)
+
+    model_path = args.model
+
+    # If no model specified or path doesn't exist, show available and prompt
+    if not model_path or not os.path.exists(model_path):
+        # Search for available models
+        search_dirs = ["models", "../models", ".", os.path.dirname(__file__)]
+        found = []
+        for d in search_dirs:
+            found += glob.glob(os.path.join(d, "*.zip"))
+        found = sorted(set(found))
+
+        if found:
+            print("\nAvailable models:")
+            for i, f in enumerate(found):
+                print(f"  [{i}] {f}")
+            print()
+            choice = input("Enter number or full path to model: ").strip()
+            if choice.isdigit():
+                model_path = found[int(choice)]
+            else:
+                model_path = choice
+        else:
+            model_path = input("No models found. Enter full path to model .zip: ").strip()
+
+    # Strip quotes in case user copy-pasted with quotes
+    model_path = model_path.strip('"').strip("'")
+
+    if not os.path.exists(model_path):
+        print(f"Error: model not found at '{model_path}'")
+        exit(1)
+
+    print(f"\nUsing model: {model_path}")
+    main(model_path, args.fps)

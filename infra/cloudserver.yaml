@@ -12,15 +12,17 @@ Parameters:
     AllowedValues:
       - g4dn.xlarge
       - g4dn.2xlarge
+      - g5.xlarge
       - c7i.2xlarge
       - c7i.4xlarge
       - c8i.8xlarge
     Description: >
-      Instance type. GPU (g4dn.*) for pixel/CNN training — fastest and cheapest
-      per run; use the default DL GPU AMI. CPU-optimized (c7i/c8i.*) for RAM/MLP
+      Instance type. GPU for pixel/CNN training — use the default DL GPU AMI:
+      g4dn.* = NVIDIA T4 (16GB), g5.xlarge = NVIDIA A10G (24GB, faster/newer,
+      ~$1/hr vs g4dn.xlarge ~$0.53). CPU-optimized (c7i/c8i.*) for RAM/MLP
       training, which is CPU-bound (the GPU sits idle): c7i.2xlarge=8 vCPU
       (N_ENVS~8), c7i.4xlarge=16 vCPU (N_ENVS~16), c8i.8xlarge=32 vCPU
-      (N_ENVS~30). For any CPU type, set AmiId to the Ubuntu 24.04 LTS path.
+      (N_ENVS~30). For any CPU type, set AmiChoice to cpu-ubuntu2404.
 
   # AMI selection as a friendly dropdown. A plain String with AllowedValues
   # renders as a proper dropdown in the console (an SSM-typed parameter does

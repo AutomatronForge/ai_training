@@ -4,9 +4,18 @@ set -e
 echo "=== Mario AI EC2 Setup (Docker) ==="
 
 # 0. Base packages
-echo "[0/5] Installing base packages (jq, gh)..."
+echo "[0/5] Installing base packages (aws-cli, jq, gh)..."
 sudo apt-get update -y
-sudo apt-get install -y jq
+sudo apt-get install -y jq unzip curl
+
+# AWS CLI v2 — needed for the Secrets Manager fetch below. Preinstalled on the
+# DL GPU AMI, but NOT on plain Ubuntu 24.04, so install if missing.
+if ! command -v aws >/dev/null 2>&1; then
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+  unzip -q /tmp/awscliv2.zip -d /tmp
+  sudo /tmp/aws/install
+  rm -rf /tmp/awscliv2.zip /tmp/aws
+fi
 
 # GitHub CLI (gh) from the official apt repo.
 if ! command -v gh >/dev/null 2>&1; then

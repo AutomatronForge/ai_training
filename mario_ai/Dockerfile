@@ -30,7 +30,7 @@ RUN python3.11 -m pip install --no-cache-dir --upgrade pip && \
     python3.11 -m pip uninstall -y numpy && \
     python3.11 -m pip install --no-cache-dir --force-reinstall "numpy==1.26.4"
 
-COPY env_utils.py train.py viewer.py ollama_coach.py ./
+COPY env_utils.py train.py train_v0.py train_v3.py viewer.py ollama_coach.py download_pretrained.py ./
 
 EXPOSE 8080 6006
 

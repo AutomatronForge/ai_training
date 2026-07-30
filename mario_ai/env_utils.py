@@ -102,8 +102,8 @@ class MarioReward(gymnasium.Wrapper):
         return obs, reward, terminated, truncated, info
 
 
-def make_mario_env():
-    env = gym_super_mario_bros.make("SuperMarioBros-v3")
+def make_mario_env(version="v3"):
+    env = gym_super_mario_bros.make(f"SuperMarioBros-{version}")
     env = JoypadSpace(env, SIMPLE_MOVEMENT)
     env = GymV21CompatibilityV0(env=env)
     env = SkipFrame(env, skip=2)
@@ -112,8 +112,10 @@ def make_mario_env():
     return env
 
 
-def make_vec_env(n_envs=8):
-    env = SubprocVecEnv([make_mario_env] * n_envs)
+def make_vec_env(n_envs=8, version="v3"):
+    import functools
+    env_fn = functools.partial(make_mario_env, version=version)
+    env = SubprocVecEnv([env_fn] * n_envs)
     env = VecFrameStack(env, n_stack=4)
     env = VecTransposeImage(env)
     return env

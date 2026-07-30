@@ -32,6 +32,7 @@ def _load_config():
         N_ENVS=20, TOTAL_TIMESTEPS=2_000_000, LEARNING_RATE=3e-4,
         CLIP_RANGE=0.2, ENT_COEF=0.01, N_STEPS=1024, BATCH_SIZE=512,
         N_EPOCHS=8, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
+        RESUME=False,
     )
     try:
         spec = importlib.util.spec_from_file_location("config", path)
@@ -47,6 +48,19 @@ def _load_config():
 
 CFG = _load_config()
 N_ENVS = CFG["N_ENVS"]
+
+
+def _find_latest_checkpoint(version):
+    """Return (path, steps) of the newest models/mario_ram_<version>_ppo_*_steps.zip,
+    or (None, 0) if none exist. Steps are parsed from the filename."""
+    import glob, re
+    pattern = os.path.join("models", f"mario_ram_{version}_ppo_*_steps.zip")
+    best_path, best_steps = None, 0
+    for p in glob.glob(pattern):
+        m = re.search(r"_(\d+)_steps\.zip$", p)
+        if m and int(m.group(1)) >= best_steps:
+            best_path, best_steps = p, int(m.group(1))
+    return best_path, best_steps
 
 
 def get_device():
@@ -69,7 +83,9 @@ class StatsCallback(BaseCallback):
         self._x_positions = []
         # richer metrics
         self._clears = 0                 # total flagpole grabs (deduped)
+        self._deathless_clears = 0       # clears in an episode with no death yet
         self._prev_flag = {}             # per-env: was flag already grabbed?
+        self._died_this_ep = {}          # per-env: has a death occurred this episode?
         self._level_clears = {}          # "world-stage" -> count
         self._last_summary_ts = 0        # step of last printed summary
         self._max_x_ever = 0             # deepest x-position reached
@@ -97,9 +113,11 @@ class StatsCallback(BaseCallback):
             if "episode" in info:
                 self._episodes += 1
                 self._rewards.append(info["episode"]["r"])
+                self._died_this_ep[env_idx] = False  # fresh episode, clean slate
             current_life = info.get("life", 3)
             if current_life < self._prev_lives.get(env_idx, 3):
                 self._deaths += 1
+                self._died_this_ep[env_idx] = True
             self._prev_lives[env_idx] = current_life
 
             # Count each flag grab once (flag_get stays true for several frames)
@@ -108,8 +126,12 @@ class StatsCallback(BaseCallback):
             if flag and not self._prev_flag.get(env_idx, False):
                 self._clears += 1
                 self._level_clears[lvl] = self._level_clears.get(lvl, 0) + 1
+                deathless = not self._died_this_ep.get(env_idx, False)
+                if deathless:
+                    self._deathless_clears += 1
                 print(f"[!] CLEAR #{self._clears} at step {self.num_timesteps} "
-                      f"| level {lvl} | total deaths so far {self._deaths}")
+                      f"| level {lvl} | {'DEATHLESS' if deathless else 'had death'} "
+                      f"| total deaths so far {self._deaths}")
             self._prev_flag[env_idx] = flag
             if lvl > self._farthest_level:
                 self._farthest_level = lvl
@@ -127,6 +149,7 @@ class StatsCallback(BaseCallback):
             eps = max(self._episodes, 1)
             levels = ", ".join(f"{k}:{v}" for k, v in sorted(self._level_clears.items()))
             print(f"[STATS] step={self.num_timesteps} clears={self._clears} "
+                  f"deathless_clears={self._deathless_clears} "
                   f"deaths={self._deaths} deaths/clear={dpc:.1f} "
                   f"episodes={self._episodes} farthest={self._farthest_level} "
                   f"levels_cleared[{levels}]")
@@ -134,6 +157,9 @@ class StatsCallback(BaseCallback):
             # --- TensorBoard scalars (graphed under the "mario/" section) ---
             log = self.logger
             log.record("mario/clears_total", self._clears)
+            log.record("mario/deathless_clears_total", self._deathless_clears)
+            log.record("mario/deathless_clear_rate",
+                       (self._deathless_clears / self._clears) if self._clears else 0.0)
             log.record("mario/deaths_total", self._deaths)
             log.record("mario/deaths_per_clear",
                        (self._deaths / self._clears) if self._clears else 0.0)
@@ -187,26 +213,40 @@ def main(version="v0"):
         RenderCallback(),
     ]
 
-    model = PPO(
-        "MlpPolicy",
-        env,
-        device=device,
-        n_steps=CFG["N_STEPS"],
-        batch_size=CFG["BATCH_SIZE"],
-        n_epochs=CFG["N_EPOCHS"],
-        learning_rate=CFG["LEARNING_RATE"],
-        clip_range=CFG["CLIP_RANGE"],
-        ent_coef=CFG["ENT_COEF"],
-        verbose=1,
-        tensorboard_log="./tensorboard/",
-    )
+    resume_path, resume_steps = (None, 0)
+    if CFG.get("RESUME"):
+        resume_path, resume_steps = _find_latest_checkpoint(version)
+
+    if resume_path:
+        print(f"Resuming from {resume_path} (@{resume_steps} steps) with N_ENVS={N_ENVS}")
+        model = PPO.load(resume_path, env=env, device=device,
+                         tensorboard_log="./tensorboard/")
+        # Continue toward the same TOTAL_TIMESTEPS target (remaining budget).
+        remaining = max(CFG["TOTAL_TIMESTEPS"] - resume_steps, 0)
+    else:
+        model = PPO(
+            "MlpPolicy",
+            env,
+            device=device,
+            n_steps=CFG["N_STEPS"],
+            batch_size=CFG["BATCH_SIZE"],
+            n_epochs=CFG["N_EPOCHS"],
+            learning_rate=CFG["LEARNING_RATE"],
+            clip_range=CFG["CLIP_RANGE"],
+            ent_coef=CFG["ENT_COEF"],
+            verbose=1,
+            tensorboard_log="./tensorboard/",
+        )
+        remaining = CFG["TOTAL_TIMESTEPS"]
 
     print(f"Training started (RAM obs, {version}).")
-    print(f"  N_ENVS={N_ENVS} | TOTAL_TIMESTEPS={CFG['TOTAL_TIMESTEPS']}")
+    print(f"  N_ENVS={N_ENVS} | TOTAL_TIMESTEPS={CFG['TOTAL_TIMESTEPS']}"
+          f"{f' | resuming, {remaining} remaining' if resume_path else ''}")
     print("  Live viewer:  http://localhost:8080")
     print("  TensorBoard: http://localhost:6006\n")
 
-    model.learn(total_timesteps=CFG["TOTAL_TIMESTEPS"], callback=callbacks)
+    model.learn(total_timesteps=remaining, callback=callbacks,
+                reset_num_timesteps=not resume_path)
     model.save(f"models/mario_ram_{version}_final")
     print(f"\nDone. Model saved to models/mario_ram_{version}_final.zip")
     env.close()

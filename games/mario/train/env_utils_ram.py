@@ -44,8 +44,39 @@ class RAMObservation(gymnasium.Wrapper):
             dtype=np.float32,
         )
 
+    def _obstacle_ahead(self, x, y):
+        """Generic, level-agnostic obstacle sense read live from the NES tilemap RAM.
+
+        Replaces the old hardcoded 1-1 PIPE_X list (which lied on every other level).
+        The NES keeps the visible tiles at RAM 0x0500-0x069F: a 2-screen buffer of
+        13 rows x 16 columns. A nonzero tile = something solid (pipe, block, stair).
+        We scan the columns just ahead of Mario, at his own row, and report the
+        distance (in pixels) to the first solid tile. Works on any level.
+
+        Returns (near, very_near, dist_next) matching the old channels' meaning.
+        """
+        dist_next = 3000.0
+        try:
+            ram = self.env.unwrapped.ram
+            # Mario's tile column/row. Screen scrolls, so use x within the 2-screen
+            # buffer (32 columns wide); rows are ~16px tall starting near the top.
+            col = (x // 16) % 32
+            row = int(np.clip((y // 16) - 2, 0, 12))  # -2: playfield offset
+            for step_cols in range(1, 6):  # look up to ~5 tiles (80px) ahead
+                c = (col + step_cols) % 32
+                # 0x0500 base; each screen page is 13*16, columns interleave by page
+                page = c // 16
+                idx = 0x0500 + page * 0xD0 + row * 16 + (c % 16)
+                if 0x0500 <= idx <= 0x069F and ram[idx] != 0:
+                    dist_next = float(step_cols * 16)
+                    break
+        except Exception:
+            dist_next = 3000.0  # read failed -> assume clear (never lie about a wall)
+        near = 1.0 if dist_next < 48 else 0.0
+        very_near = 1.0 if dist_next < 24 else 0.0
+        return near, very_near, dist_next
+
     def _make_obs(self, info):
-        PIPE_X = [224, 400, 616, 790, 1000, 1170, 1364, 1668, 1810, 2060, 2430, 2628]
         x = info.get("x_pos", 0)
         y = info.get("y_pos", 0)
         dx = x - self._prev_x
@@ -54,11 +85,8 @@ class RAMObservation(gymnasium.Wrapper):
         self._prev_y = y
         status = info.get("status", "small")
 
-        # Pipe proximity
-        ahead_pipes = [px for px in PIPE_X if px >= x]
-        dist_next = (ahead_pipes[0] - x) if ahead_pipes else 3000
-        near = 1.0 if dist_next < 48 else 0.0
-        very_near = 1.0 if dist_next < 24 else 0.0
+        # Level-agnostic obstacle proximity (was hardcoded 1-1 pipe positions).
+        near, very_near, dist_next = self._obstacle_ahead(x, y)
 
         # Enemy positions from RAM (up to 5 enemies)
         enemy_deltas = []
@@ -182,7 +210,8 @@ class MarioReward(gymnasium.Wrapper):
         if self._stuck_steps > self._w("stuck_threshold", 90):
             reward -= self._w("stuck_penalty", 0.5)
 
-        near_pipe = any(abs(x - px) < 32 for px in [224, 400, 616, 790])
+        # Level-agnostic "obstacle right ahead?" (was hardcoded 1-1 pipe x-list).
+        near_pipe = self._obstacle_ahead(x, info.get("y_pos", 0))
         if near_pipe and action in (2, 3, 4, 5):
             reward += 0.5
 
@@ -238,6 +267,26 @@ class MarioReward(gymnasium.Wrapper):
                     dist = ram[0x87 + i] - (x % 256)
                     if 0 < dist < 48:
                         return True
+        except Exception:
+            pass
+        return False
+
+    def _obstacle_ahead(self, x, y):
+        """True if a solid tile sits within ~2 tiles ahead of Mario, on any level.
+
+        Reads the live NES tilemap (RAM 0x0500-0x069F) instead of the old hardcoded
+        1-1 pipe x-positions, so the jump-nudge reward is valid on every level.
+        """
+        try:
+            ram = self.env.unwrapped.ram
+            col = (x // 16) % 32
+            row = int(min(max((y // 16) - 2, 0), 12))
+            for step_cols in (1, 2):  # within ~2 tiles (32px)
+                c = (col + step_cols) % 32
+                page = c // 16
+                idx = 0x0500 + page * 0xD0 + row * 16 + (c % 16)
+                if 0x0500 <= idx <= 0x069F and ram[idx] != 0:
+                    return True
         except Exception:
             pass
         return False

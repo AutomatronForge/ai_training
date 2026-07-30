@@ -8,10 +8,16 @@
 # "pixel_v0", "pixel_v3", "ram_v0", "ram_v3"
 TRAIN_MODE = "ram_v0"
 
-# CPU-only box: keep envs modest so we don't oversubscribe cores.
-N_ENVS = 8
+# CPU-only box: 16 physical cores (32 vCPU). N_ENVS=14 measured as the sweet spot
+# (~1,980 fps); 24 oversubscribes (load >16) and drops to ~1,660 fps.
+N_ENVS = 14
 
 TOTAL_TIMESTEPS = 5_000_000
+
+# Fresh run: the observation's 3 pipe channels changed meaning (hardcoded 1-1
+# pipes -> live RAM obstacle sense), so old checkpoints are incompatible. Start
+# from step 0. Set back to True to resume this new series after it has checkpoints.
+RESUME = False
 
 # PPO hyperparameters
 LEARNING_RATE = 3e-4

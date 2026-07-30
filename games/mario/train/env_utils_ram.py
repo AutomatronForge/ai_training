@@ -126,11 +126,29 @@ class SkipFrame(gymnasium.Wrapper):
 
 
 class MarioReward(gymnasium.Wrapper):
+    # Fixed shaping weights for score/coins/power-ups/kills/death. Kept as constants
+    # (not coach-tuned) so they stay stable; the Ollama coach still tunes movement.
+    COIN_BONUS      = 2.0     # per coin collected
+    SCORE_BONUS     = 0.01    # per point of in-game score gained
+    POWERUP_BONUS   = 15.0    # small->tall or tall->fireball (got a power-up)
+    POWERDOWN_PEN   = 10.0    # lost a power-up (hit while big) — softer than a death
+    KILL_BONUS      = 5.0     # stomped/killed an enemy (inferred from score jump)
+    FIREBALL_USE    = 0.5     # fired while in fireball state (uses the power-up)
+    DEATH_PENALTY   = 25.0    # lost a life
+    STATUS_RANK     = {"small": 0, "tall": 1, "fireball": 2}
+    # Score deltas Mario gets for stomping/killing enemies (points).
+    KILL_SCORES     = {100, 200, 400, 500, 800, 1000, 2000, 4000, 8000}
+    FIRE_ACTIONS    = {3, 4}  # SIMPLE_MOVEMENT run/B actions throw fireballs when fiery
+
     def __init__(self, env):
         super().__init__(env)
         self._max_x = 0
         self._prev_x = 0
         self._stuck_steps = 0
+        self._prev_score = 0
+        self._prev_coins = 0
+        self._prev_status = "small"
+        self._prev_life = 2
 
     def _w(self, key, default):
         from env_utils import get_shared_weights
@@ -140,6 +158,10 @@ class MarioReward(gymnasium.Wrapper):
         self._max_x = 0
         self._prev_x = 0
         self._stuck_steps = 0
+        self._prev_score = 0
+        self._prev_coins = 0
+        self._prev_status = "small"
+        self._prev_life = 2
         return self.env.reset(**kwargs)
 
     def step(self, action):
@@ -147,6 +169,7 @@ class MarioReward(gymnasium.Wrapper):
         x = info.get("x_pos", 0)
         dx = x - self._prev_x
 
+        # ── movement shaping (coach-tuned) ────────────────────────────────
         if x > self._max_x:
             reward += (x - self._max_x) * self._w("progress_bonus", 0.1)
             self._max_x = x
@@ -159,29 +182,65 @@ class MarioReward(gymnasium.Wrapper):
         if self._stuck_steps > self._w("stuck_threshold", 90):
             reward -= self._w("stuck_penalty", 0.5)
 
-        # Proximity jump bonus near pipes
         near_pipe = any(abs(x - px) < 32 for px in [224, 400, 616, 790])
         if near_pipe and action in (2, 3, 4, 5):
             reward += 0.5
 
-        # Enemy dodge bonus — reward jumping when enemy is within 48px ahead
-        try:
-            ram = self.env.unwrapped.ram
-            for i in range(5):
-                etype = ram[0x16 + i]
-                if etype > 0:
-                    ex = ram[0x87 + i]
-                    dist = ex - (x % 256)
-                    if 0 < dist < 48 and action in (2, 3, 4, 5):
-                        reward += 0.3
-        except Exception:
-            pass
+        # ── score / coins ─────────────────────────────────────────────────
+        score = info.get("score", 0)
+        coins = info.get("coins", 0)
+        d_score = score - self._prev_score
+        d_coins = coins - self._prev_coins
+        if d_coins > 0:
+            reward += d_coins * self.COIN_BONUS
+        if d_score > 0:
+            reward += d_score * self.SCORE_BONUS
+            # ── kill enemy: a score jump matching enemy point values while an
+            #    enemy is nearby is very likely a stomp/fireball kill ──────
+            if d_score in self.KILL_SCORES and self._enemy_near(x):
+                reward += self.KILL_BONUS
 
+        # ── power-ups: getting, using, and losing ─────────────────────────
+        status = info.get("status", "small")
+        cur_rank = self.STATUS_RANK.get(status, 0)
+        prev_rank = self.STATUS_RANK.get(self._prev_status, 0)
+        if cur_rank > prev_rank:
+            reward += self.POWERUP_BONUS            # picked up a mushroom/flower
+        elif cur_rank < prev_rank:
+            reward -= self.POWERDOWN_PEN            # got hit, lost power-up
+        if status == "fireball" and action in self.FIRE_ACTIONS:
+            reward += self.FIREBALL_USE             # using the fire power-up
+
+        # ── death penalty (encourages no-death runs) ──────────────────────
+        life = info.get("life", 2)
+        if life < self._prev_life:
+            reward -= self.DEATH_PENALTY
+
+        # enemy-dodge / jump bonuses (coach-tuned)
+        if self._enemy_near(x) and action in (2, 3, 4, 5):
+            reward += 0.3
         if not near_pipe and action in (2, 3, 4, 5):
             reward += self._w("jump_bonus", 0.05)
 
         self._prev_x = x
+        self._prev_score = score
+        self._prev_coins = coins
+        self._prev_status = status
+        self._prev_life = life
         return obs, reward, terminated, truncated, info
+
+    def _enemy_near(self, x):
+        """True if an active enemy is within 48px ahead of Mario."""
+        try:
+            ram = self.env.unwrapped.ram
+            for i in range(5):
+                if ram[0x16 + i] > 0:
+                    dist = ram[0x87 + i] - (x % 256)
+                    if 0 < dist < 48:
+                        return True
+        except Exception:
+            pass
+        return False
 
 
 def make_mario_ram_env(version="v0"):

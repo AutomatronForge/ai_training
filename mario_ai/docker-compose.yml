@@ -9,6 +9,16 @@ services:
       - ../models:/app/models
       - ./tensorboard:/app/tensorboard
       - ./config.py:/app/config.py
+      - ./entrypoint.py:/app/entrypoint.py
+      - ./train.py:/app/train.py
+      - ./train_v0.py:/app/train_v0.py
+      - ./train_v3.py:/app/train_v3.py
+      - ./train_ram.py:/app/train_ram.py
+      - ./env_utils.py:/app/env_utils.py
+      - ./env_utils_ram.py:/app/env_utils_ram.py
+      - ./ollama_coach.py:/app/ollama_coach.py
+      - ./viewer.py:/app/viewer.py
+      - ./download_pretrained.py:/app/download_pretrained.py
     ports:
       - "8080:8080"
       - "6006:6006"

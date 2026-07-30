@@ -33,6 +33,34 @@ if ! command -v claude >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/claude" ]; th
   curl -fsSL https://claude.ai/install.sh | bash || echo "  (Claude Code install failed — continuing)"
 fi
 
+cat >> ~/.bashrc <<'EOBASHRC'
+# Claude Code CLI
+export PATH="$HOME/.local/bin:$PATH"
+alias yolo='claude update ; claude --dangerously-skip-permissions --model="opus[1m]"'
+EOBASHRC
+
+tee ~/.claude/settings.json <<EOF
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "redacted",
+    "ANTHROPIC_BASE_URL": "http://foobar:6656/anthropic/",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "DISABLE_TELEMETRY": "1",
+    "ENABLE_TOOL_SEARCH": "auto",
+    "ANTHROPIC_MODEL": "anthropic--claude-sonnet-latest",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "anthropic--claude-sonnet-latest",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "anthropic--claude-haiku-latest",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "anthropic--claude-opus-latest"
+  },
+  "includeCoAuthoredBy": false,
+  "alwaysThinkingEnabled": false,
+  "theme": "dark",
+  "gitAttribution": false
+}
+EOF
+
 # 1. Tailscale
 echo "[1/5] Installing Tailscale..."
 curl -fsSL https://tailscale.com/install.sh | sh
@@ -121,3 +149,4 @@ fi
 echo "  sudo docker compose restart"
 echo ""
 echo "Models save to: ~/ai_training/models/ (GPU) or models_cpu/ (CPU)"
+

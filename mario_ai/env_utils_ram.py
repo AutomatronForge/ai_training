@@ -13,14 +13,15 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 
-# RAM observation vector layout (14 values, all normalized 0-1):
+# RAM observation vector layout (17 values, all normalized 0-1):
 # [x_pos, y_pos, x_vel, y_vel, coins, score, time, life, world, stage,
-#  is_small, is_tall, is_fireball, flag_get]
-RAM_OBS_SIZE = 14
+#  is_small, is_tall, is_fireball, flag_get,
+#  near_pipe1, near_pipe2, near_any_pipe]
+RAM_OBS_SIZE = 17
 RAM_OBS_MAX = np.array([
-    3000,   # x_pos (world width)
+    3000,   # x_pos
     255,    # y_pos
-    10,     # x_vel (estimated max)
+    10,     # x_vel
     10,     # y_vel
     99,     # coins
     999999, # score
@@ -32,6 +33,9 @@ RAM_OBS_MAX = np.array([
     1,      # is_tall
     1,      # is_fireball
     1,      # flag_get
+    1,      # near_pipe (within 48px)
+    1,      # very_near_pipe (within 24px)
+    3000,   # dist_to_next_pipe
 ], dtype=np.float32)
 
 
@@ -50,6 +54,7 @@ class RAMObservation(gymnasium.Wrapper):
         )
 
     def _make_obs(self, info):
+        PIPE_X = [224, 400, 616, 790, 1000, 1170, 1364, 1668, 1810, 2060, 2430, 2628]
         x = info.get("x_pos", 0)
         y = info.get("y_pos", 0)
         dx = x - self._prev_x
@@ -57,6 +62,13 @@ class RAMObservation(gymnasium.Wrapper):
         self._prev_x = x
         self._prev_y = y
         status = info.get("status", "small")
+
+        # Distance to next pipe ahead
+        ahead_pipes = [px for px in PIPE_X if px >= x]
+        dist_next = (ahead_pipes[0] - x) if ahead_pipes else 3000
+        near = 1.0 if dist_next < 48 else 0.0
+        very_near = 1.0 if dist_next < 24 else 0.0
+
         vec = np.array([
             x, y, dx, dy,
             info.get("coins", 0),
@@ -69,6 +81,9 @@ class RAMObservation(gymnasium.Wrapper):
             1.0 if status == "tall" else 0.0,
             1.0 if status == "fireball" else 0.0,
             1.0 if info.get("flag_get", False) else 0.0,
+            near,
+            very_near,
+            dist_next,
         ], dtype=np.float32)
         return np.clip(vec / RAM_OBS_MAX, 0.0, 1.0)
 
@@ -135,7 +150,13 @@ class MarioReward(gymnasium.Wrapper):
             self._stuck_steps = 0
         if self._stuck_steps > self._w("stuck_threshold", 90):
             reward -= self._w("stuck_penalty", 0.5)
-        if action in (2, 3, 4, 5):
+
+        # Proximity jump bonus — near known pipe locations, reward jumping hard
+        # World 1-1 pipes at ~x=224, x=400, x=616, x=790
+        near_pipe = any(abs(x - px) < 32 for px in [224, 400, 616, 790])
+        if near_pipe and action in (2, 3, 4, 5):
+            reward += 0.5  # strong jump signal near pipes
+        elif action in (2, 3, 4, 5):
             reward += self._w("jump_bonus", 0.05)
 
         self._prev_x = x

@@ -160,13 +160,20 @@ class ObsBuilder:
         very_near = 1.0 if dist_next < 24 else 0.0
 
         enemy_deltas = []
+        enemy_x = state.get("enemy_x", []) or []
+        enemy_y = state.get("enemy_y", []) or []
+        enemy_type = state.get("enemy_type", []) or []
         for i in range(5):
-            etype = state["enemy_type"][i]
-            if etype > 0:
-                ex = state["enemy_x"][i]
-                ey = state["enemy_y"][i]
+            etype = enemy_type[i] if i < len(enemy_type) else 0
+            if etype > 0 and i < len(enemy_x) and i < len(enemy_y):
+                ex = enemy_x[i]
+                ey = enemy_y[i]
                 enemy_deltas.extend([
                     np.clip(ex - (x % 256), -256, 256),
+                    np.clip(ey - y, -256, 256),
+                ])
+            else:
+                enemy_deltas.extend([256.0, 256.0])
                     np.clip(ey - y, -256, 256),
                 ])
             else:

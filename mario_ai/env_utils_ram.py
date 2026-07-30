@@ -150,9 +150,9 @@ class MarioReward(gymnasium.Wrapper):
 
 
 def make_mario_ram_env(version="v0"):
-    env = gym_super_mario_bros.make(f"SuperMarioBros-{version}")
+    env = gym_super_mario_bros.make(f"SuperMarioBros-{version}", render_mode="rgb_array")
     env = JoypadSpace(env, SIMPLE_MOVEMENT)
-    env = GymV21CompatibilityV0(env=env)
+    env = GymV21CompatibilityV0(env=env, render_mode="rgb_array")
     env = SkipFrame(env, skip=2)
     env = MarioReward(env)
     env = RAMObservation(env)

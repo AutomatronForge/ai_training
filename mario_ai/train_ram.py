@@ -91,7 +91,7 @@ class RenderCallback(BaseCallback):
         if self._tick % 8 != 0:
             return True
         try:
-            frames = self._vec_env.env_method("render", indices=[0])
+            frames = self._vec_env.env_method("render", "rgb_array", indices=[0])
             if frames and frames[0] is not None:
                 import cv2
                 frame = np.array(frames[0])

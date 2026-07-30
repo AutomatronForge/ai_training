@@ -5,7 +5,10 @@ import urllib.request
 import urllib.error
 
 
-OLLAMA_URL = "http://host.docker.internal:11434/api/generate"
+import os
+
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "host.docker.internal")
+OLLAMA_URL = f"http://{OLLAMA_HOST}:11434/api/generate"
 MODEL = "llama3.2:3b"
 
 DEFAULT_WEIGHTS = {

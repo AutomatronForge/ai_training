@@ -14,10 +14,9 @@ N_ENVS = 14
 
 TOTAL_TIMESTEPS = 5_000_000
 
-# Fresh run: the observation's 3 pipe channels changed meaning (hardcoded 1-1
-# pipes -> live RAM obstacle sense), so old checkpoints are incompatible. Start
-# from step 0. Set back to True to resume this new series after it has checkpoints.
-RESUME = False
+# Resume the post-fix series from its latest checkpoint (obs format unchanged;
+# only the Ollama coach objective + progress_bonus cap changed this restart).
+RESUME = True
 
 # PPO hyperparameters
 LEARNING_RATE = 3e-4

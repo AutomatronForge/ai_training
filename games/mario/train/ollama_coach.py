@@ -33,6 +33,10 @@ def _clamp(new_weights: dict) -> dict:
     float_keys = {"progress_bonus", "velocity_bonus", "stuck_penalty", "jump_bonus"}
     for k in float_keys:
         new_weights[k] = max(0.01, min(1.0, float(new_weights[k])))
+    # Data-backed cap: with no cap the coach ran progress_bonus to 1.0 (pure
+    # "rush right"), which clears 1-1 but drives the agent straight into 1-2's
+    # pits (max_x pinned at the 1-1 flag, 3161). Cap it so caution can be learned.
+    new_weights["progress_bonus"] = min(new_weights["progress_bonus"], 0.5)
     new_weights["stuck_threshold"] = max(30, min(150, int(new_weights["stuck_threshold"])))
     return new_weights
 
@@ -55,6 +59,11 @@ Rules:
 - If stuck_pct > 0.3, increase stuck_penalty to force movement
 - If deaths_per_ep > 5, reduce stuck_threshold so penalty kicks in sooner
 - If avg_x > 1500, agent is past the big pipe — reduce jump_bonus, increase progress_bonus
+- BALANCE progress against survival: high deaths_per_ep with high avg_x means the
+  agent is rushing into hazards (pits) — do NOT keep raising progress_bonus in that
+  case; favor stuck_penalty/jump control instead. Pure "rush right" clears easy
+  levels but dies in later ones.
+- Keep progress_bonus at or below 0.5 (a hard cap is enforced anyway)
 - Keep all float values between 0.01 and 1.0, stuck_threshold between 30 and 150
 - Make small adjustments (±0.05 max per step), do not drastically change values
 

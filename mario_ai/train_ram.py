@@ -80,25 +80,11 @@ class StatsCallback(BaseCallback):
 
 
 class RenderCallback(BaseCallback):
-    """Renders env 0 every N steps for the true color web viewer."""
-    def __init__(self, vec_env, verbose=0):
+    """Skips rendering for RAM training — no pixel obs available in subprocess."""
+    def __init__(self, verbose=0):
         super().__init__(verbose)
-        self._vec_env = vec_env
-        self._tick = 0
 
     def _on_step(self) -> bool:
-        self._tick += 1
-        if self._tick % 8 != 0:
-            return True
-        try:
-            frames = self._vec_env.env_method("render", "rgb_array", indices=[0])
-            if frames and frames[0] is not None:
-                import cv2
-                frame = np.array(frames[0])
-                if frame.ndim == 3 and frame.shape[2] == 3:
-                    viewer.update_frame(0, frame, mode="rgb")
-        except Exception:
-            pass
         return True
 
 
@@ -124,7 +110,7 @@ def main(version="v0"):
             name_prefix=f"mario_ram_{version}_ppo",
         ),
         stats_cb,
-        RenderCallback(env),
+        RenderCallback(),
     ]
 
     model = PPO(

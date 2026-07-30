@@ -67,6 +67,11 @@ class StatsCallback(BaseCallback):
         self._total_actions = 0
         self._prev_lives = {}
         self._x_positions = []
+        # richer metrics
+        self._clears = 0                 # total flagpole grabs (deduped)
+        self._prev_flag = {}             # per-env: was flag already grabbed?
+        self._level_clears = {}          # "world-stage" -> count
+        self._last_summary_ts = 0        # step of last printed summary
 
     def get_stats(self):
         total = max(self._total_actions, 1)
@@ -94,11 +99,29 @@ class StatsCallback(BaseCallback):
             if current_life < self._prev_lives.get(env_idx, 3):
                 self._deaths += 1
             self._prev_lives[env_idx] = current_life
-            if info.get("flag_get", False):
-                print(f"[!] Mario cleared the level at step {self.num_timesteps}!")
+
+            # Count each flag grab once (flag_get stays true for several frames)
+            flag = bool(info.get("flag_get", False))
+            if flag and not self._prev_flag.get(env_idx, False):
+                self._clears += 1
+                lvl = f"{info.get('world', 1)}-{info.get('stage', 1)}"
+                self._level_clears[lvl] = self._level_clears.get(lvl, 0) + 1
+                print(f"[!] CLEAR #{self._clears} at step {self.num_timesteps} "
+                      f"| level {lvl} | total deaths so far {self._deaths}")
+            self._prev_flag[env_idx] = flag
+
             x = info.get("x_pos", 0)
             if x > 0:
                 self._x_positions.append(x)
+
+        # Periodic summary every ~50k steps: clears, deaths, deaths/clear, levels
+        if self.num_timesteps - self._last_summary_ts >= 50_000:
+            self._last_summary_ts = self.num_timesteps
+            dpc = (self._deaths / self._clears) if self._clears else float("nan")
+            levels = ", ".join(f"{k}:{v}" for k, v in sorted(self._level_clears.items()))
+            print(f"[STATS] step={self.num_timesteps} clears={self._clears} "
+                  f"deaths={self._deaths} deaths/clear={dpc:.1f} "
+                  f"episodes={self._episodes} levels_cleared[{levels}]")
         return True
 
 

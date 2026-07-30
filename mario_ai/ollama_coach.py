@@ -71,7 +71,7 @@ Respond with ONLY valid JSON, no explanation:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             result = json.loads(resp.read())
             text = result.get("response", "").strip()
             start = text.find("{")
@@ -110,9 +110,33 @@ def _coach_loop(stats_fn, interval=5000):
             print(f"[Ollama] Coach loop error: {e}")
 
 
+def _warmup():
+    """Pre-load the model so first real query doesn't time out."""
+    print("[Ollama] Warming up model...")
+    payload = json.dumps({
+        "model": MODEL,
+        "prompt": "say ready",
+        "stream": False,
+        "options": {"num_predict": 3},
+    }).encode()
+    try:
+        req = urllib.request.Request(
+            OLLAMA_URL, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            resp.read()
+        print("[Ollama] Model ready.")
+    except Exception as e:
+        print(f"[Ollama] Warmup failed: {e} — will retry on first query")
+
+
 def start(stats_fn, shared_weights=None, interval=5000):
     global _shared_weights
     _shared_weights = shared_weights
+    # Warmup in background so training isn't blocked
+    warmup_t = threading.Thread(target=_warmup, daemon=True)
+    warmup_t.start()
     t = threading.Thread(target=_coach_loop, args=(stats_fn, interval), daemon=True)
     t.start()
     print(f"[Ollama] Coach started — adjusting weights every {interval} steps")

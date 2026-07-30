@@ -32,7 +32,8 @@ from flask import Flask, Response
 app = Flask(__name__)
 _frame = None
 _lock = threading.Lock()
-_stats = {"x": 0, "action": "-", "reward": 0.0, "clears": 0, "episode": 0, "step": 0}
+_stats = {"x": 0, "action": "-", "reward": 0.0, "clears": 0, "episode": 0,
+          "step": 0, "generation": 0, "flag": False}
 
 
 def _set_frame(rgb, stats):
@@ -68,16 +69,28 @@ def index():
       *{box-sizing:border-box;margin:0;padding:0}
       body{background:#0a0a0a;color:#eee;font-family:monospace;
            display:flex;flex-direction:column;align-items:center;
-           justify-content:center;min-height:100vh;gap:14px}
+           justify-content:center;min-height:100vh;gap:12px}
       h2{font-size:14px;color:#6c7;letter-spacing:3px;text-transform:uppercase}
+      #gen{font-size:12px;color:#89a}
+      #gen b{color:#fc6}
+      .wrap{position:relative}
       img{border:2px solid #1a1a1a;border-radius:6px;image-rendering:pixelated;
-          width:640px;height:600px}
+          width:640px;height:600px;display:block}
+      #flag{position:absolute;top:14px;left:50%;transform:translateX(-50%);
+            background:#127a12;color:#fff;font-size:20px;font-weight:bold;
+            padding:10px 20px;border-radius:6px;letter-spacing:2px;
+            box-shadow:0 0 20px #0f0;display:none}
+      #flag.show{display:block}
       #stats{display:flex;gap:22px;font-size:13px;color:#9ab}
       #stats b{color:#fff}
       .clears{color:#6f6}
     </style></head><body>
     <h2>Mario AI &mdash; Trained Model Showcase</h2>
-    <img src="/stream">
+    <div id="gen">training generation: <b id="g">&mdash;</b> steps</div>
+    <div class="wrap">
+      <img src="/stream">
+      <div id="flag">&#128681; REACHED THE FLAG!</div>
+    </div>
     <div id="stats">
       <span>x=<b id="x">0</b></span>
       <span>action=<b id="a">-</b></span>
@@ -86,10 +99,13 @@ def index():
       <span>ep=<b id="e">0</b></span>
     </div>
     <script>
+      const fmt=n=>n.toLocaleString();
       setInterval(async()=>{const s=await (await fetch('/stats')).json();
         x.textContent=s.x; a.textContent=s.action;
         r.textContent=Math.round(s.reward); c.textContent=s.clears;
-        e.textContent=s.episode;}, 300);
+        e.textContent=s.episode; g.textContent=fmt(s.generation);
+        document.getElementById('flag').className = s.flag ? 'show' : '';
+      }, 300);
     </script>
     </body></html>
     """
@@ -171,6 +187,12 @@ def build_obs(info, prev_x, prev_y, unwrapped):
     return np.clip(vec / RAM_OBS_MAX, 0.0, 1.0), x, y
 
 
+def _gen_from_path(path):
+    """Extract the training step count ('generation') from a checkpoint name."""
+    m = re.search(r"_(\d+)_steps", path or "")
+    return int(m.group(1)) if m else 0
+
+
 def pick_latest_model():
     found = glob.glob("models/*.zip") + glob.glob("../../../models/*.zip")
 
@@ -224,6 +246,8 @@ def main(model_path, version="v0", port=8081, fps=30, auto_latest=False):
         ep_reward = 0.0
         step = 0
         done = False
+        generation = _gen_from_path(loaded_path)
+        reached_flag = False  # latches true for the rest of the episode on a clear
 
         while not done:
             t0 = time.time()
@@ -243,7 +267,8 @@ def main(model_path, version="v0", port=8081, fps=30, auto_latest=False):
                     break
 
             frame = unwrapped.render(mode="rgb_array")
-            if info.get("flag_get", False):
+            if info.get("flag_get", False) and not reached_flag:
+                reached_flag = True  # count each clear once (flag_get stays true after)
                 total_clears += 1
                 print(f"[showcase] LEVEL CLEARED! ep={episode} total_clears={total_clears}")
 
@@ -255,6 +280,8 @@ def main(model_path, version="v0", port=8081, fps=30, auto_latest=False):
                     "clears": total_clears,
                     "episode": episode,
                     "step": step,
+                    "generation": generation,
+                    "flag": reached_flag,
                 })
 
             step += 1

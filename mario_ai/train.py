@@ -88,7 +88,7 @@ class StatsCallback(BaseCallback):
                             frame = (frame * 255).clip(0, 255).astype(np.uint8)
                         else:
                             frame = frame.astype(np.uint8)
-                        viewer.update_frame(idx, cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB))
+                        viewer.update_frame(idx, cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB), mode="viridis")
             except Exception:
                 pass
 

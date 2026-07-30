@@ -19,6 +19,7 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback
 from env_utils_ram import make_ram_vec_env
+import viewer
 import ollama_coach
 from env_utils import init_shared_weights
 
@@ -91,6 +92,9 @@ def main(version="v0"):
     ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights, interval=5000)
 
     env = make_ram_vec_env(n_envs=N_ENVS, version=version)
+
+    # RAM training has no pixel obs — render env 0 directly for true color viewer
+    viewer.start_ram_render(env)
 
     callbacks = [
         CheckpointCallback(

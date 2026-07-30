@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Training artifacts — too large for git
+models/
+mario_ai/tensorboard/
+mario_ai_mac/tensorboard/
+mario_ai_cpu/tensorboard/
+*.zip
+*.tar.gz
+
+# Docker
+.docker/
+
+# Editor
+.claude/
+docs/
+openspec/

@@ -11,6 +11,7 @@ import gymnasium
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
+from stable_baselines3.common.monitor import Monitor
 
 # RAM observation vector layout (14 values, all normalized 0-1):
 # [x_pos, y_pos, x_vel, y_vel, coins, score, time, life, world, stage,
@@ -148,6 +149,7 @@ def make_mario_ram_env(version="v0"):
     env = SkipFrame(env, skip=2)
     env = MarioReward(env)
     env = RAMObservation(env)
+    env = Monitor(env)
     return env
 
 

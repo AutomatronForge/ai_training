@@ -4,13 +4,13 @@
 # docker-compose.yml mounts this as: ./config.py:/app/config.py
 
 # Which training script to run: "pixel_v0", "pixel_v3", "ram_v0", "ram_v3"
-TRAIN_MODE = "ram_v3"
+TRAIN_MODE = "ram_v0"
 
 # Number of parallel environments
 N_ENVS = 20
 
 # Total training steps
-TOTAL_TIMESTEPS = 10_000_000
+TOTAL_TIMESTEPS = 5_000_000
 
 # PPO hyperparameters
 LEARNING_RATE = 3e-4

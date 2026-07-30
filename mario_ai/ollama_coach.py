@@ -29,8 +29,8 @@ def get_weights():
 def _clamp(new_weights: dict) -> dict:
     float_keys = {"progress_bonus", "velocity_bonus", "stuck_penalty", "jump_bonus"}
     for k in float_keys:
-        new_weights[k] = max(0.01, min(2.0, float(new_weights[k])))
-    new_weights["stuck_threshold"] = max(10, min(300, int(new_weights["stuck_threshold"])))
+        new_weights[k] = max(0.01, min(1.0, float(new_weights[k])))
+    new_weights["stuck_threshold"] = max(30, min(150, int(new_weights["stuck_threshold"])))
     return new_weights
 
 
@@ -52,7 +52,8 @@ Rules:
 - If stuck_pct > 0.3, increase stuck_penalty to force movement
 - If deaths_per_ep > 5, reduce stuck_threshold so penalty kicks in sooner
 - If avg_x > 1500, agent is past the big pipe — reduce jump_bonus, increase progress_bonus
-- Keep all float values between 0.01 and 2.0, stuck_threshold between 10 and 300
+- Keep all float values between 0.01 and 1.0, stuck_threshold between 30 and 150
+- Make small adjustments (±0.05 max per step), do not drastically change values
 
 Respond with ONLY valid JSON, no explanation:
 {{"progress_bonus": float, "velocity_bonus": float, "stuck_penalty": float, "jump_bonus": float, "stuck_threshold": int}}"""

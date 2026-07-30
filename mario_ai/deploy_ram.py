@@ -50,10 +50,10 @@ RAM_ENEMY_TYPE    = [0x0016 + i for i in range(5)]  # enemy types (0=none)
 ACTION_KEYS = {
     0: [],                              # NOOP
     1: ["right"],                       # right
-    2: ["right", "z"],                  # right + jump (A button = Z in RetroArch default)
-    3: ["right", "x"],                  # right + run (B button = X)
-    4: ["right", "x", "z"],             # right + run + jump
-    5: ["z"],                           # jump in place
+    2: ["right", "x"],                  # right + jump (A = x)
+    3: ["right", "z"],                  # right + run  (B = z)
+    4: ["right", "z", "x"],             # right + run + jump
+    5: ["x"],                           # jump in place (A = x)
     6: ["left"],                        # left
 }
 

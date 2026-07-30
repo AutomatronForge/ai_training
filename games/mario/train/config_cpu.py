@@ -14,9 +14,10 @@ N_ENVS = 14
 
 TOTAL_TIMESTEPS = 5_000_000
 
-# Resume the post-fix series from its latest checkpoint (obs format unchanged;
-# only the Ollama coach objective + progress_bonus cap changed this restart).
-RESUME = True
+# Option B fresh run: obs grew 27 -> 29 (added pit_ahead + dist_to_pit), so old
+# checkpoints are incompatible. Start from step 0. Flip to True to resume THIS
+# series once it has checkpoints.
+RESUME = False
 
 # PPO hyperparameters
 LEARNING_RATE = 3e-4

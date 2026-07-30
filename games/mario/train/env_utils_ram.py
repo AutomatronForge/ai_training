@@ -13,21 +13,42 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.monitor import Monitor
 
-# RAM observation vector layout (27 values, all normalized 0-1):
+# RAM observation vector layout (29 values, all normalized 0-1):
 # [x_pos, y_pos, x_vel, y_vel, coins, score, time, life, world, stage,
 #  is_small, is_tall, is_fireball, flag_get,
-#  near_pipe, very_near_pipe, dist_to_next_pipe,
+#  near_wall, very_near_wall, dist_to_next_wall,
+#  pit_ahead, dist_to_pit,                                 <-- Option B (pit sense)
 #  enemy0_dx, enemy0_dy, enemy1_dx, enemy1_dy, enemy2_dx, enemy2_dy,
 #  enemy3_dx, enemy3_dy, enemy4_dx, enemy4_dy]
-RAM_OBS_SIZE = 27
+RAM_OBS_SIZE = 29
 RAM_OBS_MAX = np.array([
     3000, 255, 10, 10,   # x, y, dx, dy
     99, 999999, 400, 3, 8, 4,  # coins, score, time, life, world, stage
     1, 1, 1, 1,          # status flags, flag_get
-    1, 1, 3000,          # near_pipe, very_near_pipe, dist_next_pipe
+    1, 1, 3000,          # near_wall, very_near_wall, dist_next_wall
+    1, 3000,             # pit_ahead, dist_to_pit
     # enemy deltas — relative to Mario, clamped to ±256
     256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
 ], dtype=np.float32)
+
+
+# --- NES Super Mario Bros tilemap (verified empirically in-env) --------------
+# RAM 0x0500..0x069F = a 13-row x 32-col tile grid (2 screens), row-major. A
+# nonzero tile is solid; 0 is empty. Row 12 (bottom) is the ground floor: a run
+# of zeros there = a PIT. Columns scroll with the screen, so Mario's column is
+# (screen_x // 16). See test dump: row12 "########........########" = pit at cols 8-15.
+TILE_BASE = 0x0500
+TILE_ROWS = 13
+TILE_COLS = 32
+FLOOR_ROW = 12
+
+
+def _read_tiles(ram):
+    """Return the 13x32 tile grid, or None if the RAM slice is the wrong size."""
+    sl = ram[TILE_BASE:TILE_BASE + TILE_ROWS * TILE_COLS]
+    if sl.size != TILE_ROWS * TILE_COLS:
+        return None
+    return np.asarray(sl).reshape(TILE_ROWS, TILE_COLS)
 
 
 class RAMObservation(gymnasium.Wrapper):
@@ -44,37 +65,38 @@ class RAMObservation(gymnasium.Wrapper):
             dtype=np.float32,
         )
 
-    def _obstacle_ahead(self, x, y):
-        """Generic, level-agnostic obstacle sense read live from the NES tilemap RAM.
+    def _sense_ahead(self, x, y):
+        """Level-agnostic wall AND pit sense, read live from the NES tile grid.
 
-        Replaces the old hardcoded 1-1 PIPE_X list (which lied on every other level).
-        The NES keeps the visible tiles at RAM 0x0500-0x069F: a 2-screen buffer of
-        13 rows x 16 columns. A nonzero tile = something solid (pipe, block, stair).
-        We scan the columns just ahead of Mario, at his own row, and report the
-        distance (in pixels) to the first solid tile. Works on any level.
-
-        Returns (near, very_near, dist_next) matching the old channels' meaning.
+        Scans the columns just ahead of Mario:
+          - a solid tile at his own row  -> WALL  (jump over / it blocks him)
+          - an EMPTY floor row (row 12)   -> PIT   (a gap he must jump)
+        Returns (wall_near, wall_very_near, dist_wall, pit_ahead, dist_pit).
+        Any read failure falls back to "all clear" so we never fabricate a hazard.
         """
-        dist_next = 3000.0
+        dist_wall, dist_pit = 3000.0, 3000.0
         try:
-            ram = self.env.unwrapped.ram
-            # Mario's tile column/row. Screen scrolls, so use x within the 2-screen
-            # buffer (32 columns wide); rows are ~16px tall starting near the top.
-            col = (x // 16) % 32
-            row = int(np.clip((y // 16) - 2, 0, 12))  # -2: playfield offset
-            for step_cols in range(1, 6):  # look up to ~5 tiles (80px) ahead
-                c = (col + step_cols) % 32
-                # 0x0500 base; each screen page is 13*16, columns interleave by page
-                page = c // 16
-                idx = 0x0500 + page * 0xD0 + row * 16 + (c % 16)
-                if 0x0500 <= idx <= 0x069F and ram[idx] != 0:
-                    dist_next = float(step_cols * 16)
-                    break
+            grid = _read_tiles(self.env.unwrapped.ram)
+            if grid is not None:
+                col = (x // 16) % TILE_COLS
+                row = int(np.clip((y // 16), 0, TILE_ROWS - 1))
+                for step in range(1, 7):  # look ~7 tiles (112px) ahead
+                    c = (col + step) % TILE_COLS
+                    px = float(step * 16)
+                    # WALL: solid tile at Mario's row
+                    if dist_wall >= 3000.0 and grid[row, c] != 0:
+                        dist_wall = px
+                    # PIT: floor row empty = gap in the ground ahead
+                    if dist_pit >= 3000.0 and grid[FLOOR_ROW, c] == 0:
+                        dist_pit = px
+                    if dist_wall < 3000.0 and dist_pit < 3000.0:
+                        break
         except Exception:
-            dist_next = 3000.0  # read failed -> assume clear (never lie about a wall)
-        near = 1.0 if dist_next < 48 else 0.0
-        very_near = 1.0 if dist_next < 24 else 0.0
-        return near, very_near, dist_next
+            dist_wall, dist_pit = 3000.0, 3000.0
+        wall_near = 1.0 if dist_wall < 48 else 0.0
+        wall_very_near = 1.0 if dist_wall < 24 else 0.0
+        pit_ahead = 1.0 if dist_pit < 64 else 0.0  # pit within ~4 tiles = act now
+        return wall_near, wall_very_near, dist_wall, pit_ahead, dist_pit
 
     def _make_obs(self, info):
         x = info.get("x_pos", 0)
@@ -85,8 +107,8 @@ class RAMObservation(gymnasium.Wrapper):
         self._prev_y = y
         status = info.get("status", "small")
 
-        # Level-agnostic obstacle proximity (was hardcoded 1-1 pipe positions).
-        near, very_near, dist_next = self._obstacle_ahead(x, y)
+        # Level-agnostic wall + pit proximity (Option B: real tile grid, incl. gaps).
+        near, very_near, dist_next, pit_ahead, dist_pit = self._sense_ahead(x, y)
 
         # Enemy positions from RAM (up to 5 enemies)
         enemy_deltas = []
@@ -119,6 +141,7 @@ class RAMObservation(gymnasium.Wrapper):
             1.0 if status == "fireball" else 0.0,
             1.0 if info.get("flag_get", False) else 0.0,
             near, very_near, dist_next,
+            pit_ahead, dist_pit,
             *enemy_deltas,
         ], dtype=np.float32)
         return np.clip(vec / RAM_OBS_MAX, 0.0, 1.0)
@@ -210,10 +233,14 @@ class MarioReward(gymnasium.Wrapper):
         if self._stuck_steps > self._w("stuck_threshold", 90):
             reward -= self._w("stuck_penalty", 0.5)
 
-        # Level-agnostic "obstacle right ahead?" (was hardcoded 1-1 pipe x-list).
-        near_pipe = self._obstacle_ahead(x, info.get("y_pos", 0))
-        if near_pipe and action in (2, 3, 4, 5):
+        # Level-agnostic jump nudge: reward jumping when a WALL or a PIT is just
+        # ahead (Option B adds pit awareness — pits are what kill it in 1-2+).
+        wall_ahead, pit_ahead = self._hazard_ahead(x, info.get("y_pos", 0))
+        near_pipe = wall_ahead
+        if wall_ahead and action in (2, 3, 4, 5):
             reward += 0.5
+        if pit_ahead and action in (2, 3, 4, 5):
+            reward += 0.7  # jumping a gap is the exact skill 1-2 needs
 
         # ── score / coins ─────────────────────────────────────────────────
         score = info.get("score", 0)
@@ -271,25 +298,27 @@ class MarioReward(gymnasium.Wrapper):
             pass
         return False
 
-    def _obstacle_ahead(self, x, y):
-        """True if a solid tile sits within ~2 tiles ahead of Mario, on any level.
+    def _hazard_ahead(self, x, y):
+        """(wall_ahead, pit_ahead) within ~2 tiles, from the live NES tile grid.
 
-        Reads the live NES tilemap (RAM 0x0500-0x069F) instead of the old hardcoded
-        1-1 pipe x-positions, so the jump-nudge reward is valid on every level.
+        wall = solid tile at Mario's row; pit = empty floor row (a gap). Used to
+        reward jumping at the right moment on any level (Option B: pit-aware).
         """
+        wall = pit = False
         try:
-            ram = self.env.unwrapped.ram
-            col = (x // 16) % 32
-            row = int(min(max((y // 16) - 2, 0), 12))
-            for step_cols in (1, 2):  # within ~2 tiles (32px)
-                c = (col + step_cols) % 32
-                page = c // 16
-                idx = 0x0500 + page * 0xD0 + row * 16 + (c % 16)
-                if 0x0500 <= idx <= 0x069F and ram[idx] != 0:
-                    return True
+            grid = _read_tiles(self.env.unwrapped.ram)
+            if grid is not None:
+                col = (x // 16) % TILE_COLS
+                row = int(min(max((y // 16), 0), TILE_ROWS - 1))
+                for step_cols in (1, 2, 3):  # within ~3 tiles (48px)
+                    c = (col + step_cols) % TILE_COLS
+                    if grid[row, c] != 0:
+                        wall = True
+                    if grid[FLOOR_ROW, c] == 0:
+                        pit = True
         except Exception:
             pass
-        return False
+        return wall, pit
 
 
 def make_mario_ram_env(version="v0"):

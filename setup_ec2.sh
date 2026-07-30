@@ -3,6 +3,12 @@ set -e
 
 echo "=== Mario AI EC2 Setup ==="
 
+# 0. Install Tailscale
+echo "[0/6] Installing Tailscale..."
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh --hostname cloudserver
+echo "Tailscale up. Reach this box over the tailnet (hostname: cloudserver)."
+
 # 1. Install Ollama
 echo "[1/6] Installing Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh

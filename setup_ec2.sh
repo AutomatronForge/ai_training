@@ -1,89 +1,75 @@
 #!/bin/bash
 set -e
 
-echo "=== Mario AI EC2 Setup ==="
+echo "=== Mario AI EC2 Setup (Docker) ==="
 
-# 0. Install Tailscale
-echo "[0/6] Installing Tailscale..."
+# 0. Base packages
+echo "[0/5] Installing base packages (jq)..."
+sudo apt-get update -y
+sudo apt-get install -y jq
+
+# 1. Tailscale
+echo "[1/5] Installing Tailscale..."
 curl -fsSL https://tailscale.com/install.sh | sh
-# Auth key pulled from Secrets Manager — no key in repo.
-# Requires the instance role to allow secretsmanager:GetSecretValue
-# (+ kms:Decrypt if the secret uses a customer-managed KMS key).
+# Auth key pulled from Secrets Manager — no key in repo. Secret is JSON:
+# {"key":"tskey-auth-..."}. Requires the instance role to allow
+# secretsmanager:GetSecretValue on this secret.
 TS_KEY=$(aws secretsmanager get-secret-value \
   --region us-west-2 \
   --secret-id arn:aws:secretsmanager:us-west-2:502142436846:secret:test/case1-YY7CGT \
-  --query SecretString --output text)
-sudo tailscale up --ssh --hostname cloudserver --authkey "$TS_KEY"
+  --query SecretString --output text | jq -r '.key')
+sudo tailscale up --reset --ssh --hostname cloudserver --authkey "$TS_KEY"
 echo "Tailscale up. Reach this box over the tailnet (hostname: cloudserver)."
 
-# 1. Install Ollama
-echo "[1/6] Installing Ollama..."
-curl -fsSL https://ollama.com/install.sh | sh
-ollama pull llama3.2:3b &
-OLLAMA_PID=$!
+# 2. Docker + NVIDIA Container Toolkit
+echo "[2/5] Installing Docker + NVIDIA Container Toolkit..."
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | sh
+fi
+sudo usermod -aG docker ubuntu || true
 
-# 2. Clone repo
-echo "[2/6] Cloning repo..."
-git clone https://github.com/AutomatronForge/ai_training.git ~/ai_training
-cd ~/ai_training/games/mario/train
+# NVIDIA Container Toolkit (so Docker can see the GPU).
+if ! dpkg -l | grep -q nvidia-container-toolkit; then
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+    | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+    | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+    | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  sudo apt-get update -y
+  sudo apt-get install -y nvidia-container-toolkit
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+fi
 
-# 3. Create venv
-echo "[3/6] Creating venv..."
-python3 -m venv .venv
-source .venv/bin/activate
+# 3. Clone repo
+echo "[3/5] Cloning repo..."
+if [ ! -d ~/ai_training ]; then
+  git clone https://github.com/AutomatronForge/ai_training.git ~/ai_training
+fi
 
-# 4. Install dependencies
-echo "[4/6] Installing dependencies..."
-pip install --upgrade pip --quiet
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 --quiet
-pip install "numpy<2" --quiet
-pip install \
-    "gym-super-mario-bros==7.4.0" \
-    "nes-py==8.2.1" \
-    "stable-baselines3[extra]==2.3.2" \
-    "opencv-python-headless==4.9.0.80" \
-    "shimmy[gym-v21]==1.3.0" \
-    "tensorboard" \
-    "flask" --quiet
-pip uninstall -y numpy --quiet
-pip install --force-reinstall "numpy==1.26.4" --quiet
-
-# 5. Wait for Ollama model pull to finish
-echo "[5/6] Waiting for llama3.2:3b pull..."
-wait $OLLAMA_PID
-echo "Model ready."
-
-# 6. Launch training in tmux
-echo "[6/6] Starting training in tmux session 'mario'..."
+# 4. Prep shared dirs
+echo "[4/5] Preparing directories..."
 mkdir -p ~/ai_training/models
-mkdir -p tensorboard
 
-export OLLAMA_HOST=localhost
-
-tmux new-session -d -s mario -x 220 -y 50
-tmux send-keys -t mario "cd ~/ai_training/games/mario/train && source .venv/bin/activate" Enter
-tmux send-keys -t mario "export OLLAMA_HOST=localhost" Enter
-tmux send-keys -t mario "tensorboard --logdir tensorboard --host 0.0.0.0 --port 6006 &" Enter
-tmux send-keys -t mario "python entrypoint.py" Enter
+# 5. Launch the training stack (training + Ollama, both containerized)
+echo "[5/5] Starting Docker stack..."
+cd ~/ai_training/games/mario/docker/cuda
+sudo docker compose up -d --build
 
 echo ""
 echo "=== Setup complete ==="
 echo ""
-echo "Training running in tmux. To watch:"
-echo "  tmux attach -t mario"
+echo "Stack running in Docker (services: mario-train, ollama)."
 echo ""
-echo "To detach from tmux without stopping training:"
-echo "  Ctrl+B then D"
+echo "Watch training logs:"
+echo "  cd ~/ai_training/games/mario/docker/cuda && sudo docker compose logs -f mario-train"
 echo ""
-echo "Ports to forward from your Mac:"
-echo "  ssh -L 8080:localhost:8080 -L 6006:localhost:6006 ubuntu@<EC2-IP>"
+echo "Reach services over Tailscale (hostname: cloudserver):"
+echo "  http://cloudserver:8080  — live viewer"
+echo "  http://cloudserver:6006  — TensorBoard"
 echo ""
-echo "Then open:"
-echo "  http://localhost:8080  — live viewer"
-echo "  http://localhost:6006  — TensorBoard"
-echo ""
-echo "To change training mode (edit config.py first):"
+echo "To change training mode: edit config.py, then restart:"
 echo "  nano ~/ai_training/games/mario/train/config.py"
-echo "  # Then restart tmux session"
+echo "  sudo docker compose restart mario-train"
 echo ""
 echo "Models save to: ~/ai_training/models/"

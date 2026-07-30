@@ -13,29 +13,20 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
 from stable_baselines3.common.monitor import Monitor
 
-# RAM observation vector layout (17 values, all normalized 0-1):
+# RAM observation vector layout (27 values, all normalized 0-1):
 # [x_pos, y_pos, x_vel, y_vel, coins, score, time, life, world, stage,
 #  is_small, is_tall, is_fireball, flag_get,
-#  near_pipe1, near_pipe2, near_any_pipe]
-RAM_OBS_SIZE = 17
+#  near_pipe, very_near_pipe, dist_to_next_pipe,
+#  enemy0_dx, enemy0_dy, enemy1_dx, enemy1_dy, enemy2_dx, enemy2_dy,
+#  enemy3_dx, enemy3_dy, enemy4_dx, enemy4_dy]
+RAM_OBS_SIZE = 27
 RAM_OBS_MAX = np.array([
-    3000,   # x_pos
-    255,    # y_pos
-    10,     # x_vel
-    10,     # y_vel
-    99,     # coins
-    999999, # score
-    400,    # time
-    3,      # life
-    8,      # world
-    4,      # stage
-    1,      # is_small
-    1,      # is_tall
-    1,      # is_fireball
-    1,      # flag_get
-    1,      # near_pipe (within 48px)
-    1,      # very_near_pipe (within 24px)
-    3000,   # dist_to_next_pipe
+    3000, 255, 10, 10,   # x, y, dx, dy
+    99, 999999, 400, 3, 8, 4,  # coins, score, time, life, world, stage
+    1, 1, 1, 1,          # status flags, flag_get
+    1, 1, 3000,          # near_pipe, very_near_pipe, dist_next_pipe
+    # enemy deltas — relative to Mario, clamped to ±256
+    256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
 ], dtype=np.float32)
 
 
@@ -63,11 +54,29 @@ class RAMObservation(gymnasium.Wrapper):
         self._prev_y = y
         status = info.get("status", "small")
 
-        # Distance to next pipe ahead
+        # Pipe proximity
         ahead_pipes = [px for px in PIPE_X if px >= x]
         dist_next = (ahead_pipes[0] - x) if ahead_pipes else 3000
         near = 1.0 if dist_next < 48 else 0.0
         very_near = 1.0 if dist_next < 24 else 0.0
+
+        # Enemy positions from RAM (up to 5 enemies)
+        enemy_deltas = []
+        try:
+            ram = self.env.unwrapped.ram
+            for i in range(5):
+                ex = ram[0x87 + i]
+                ey = ram[0xCF + i]
+                etype = ram[0x16 + i]
+                if etype > 0:  # active enemy
+                    enemy_deltas.extend([
+                        np.clip(ex - (x % 256), -256, 256),
+                        np.clip(ey - y, -256, 256),
+                    ])
+                else:
+                    enemy_deltas.extend([256.0, 256.0])  # no enemy = max distance
+        except Exception:
+            enemy_deltas = [256.0] * 10
 
         vec = np.array([
             x, y, dx, dy,
@@ -81,9 +90,8 @@ class RAMObservation(gymnasium.Wrapper):
             1.0 if status == "tall" else 0.0,
             1.0 if status == "fireball" else 0.0,
             1.0 if info.get("flag_get", False) else 0.0,
-            near,
-            very_near,
-            dist_next,
+            near, very_near, dist_next,
+            *enemy_deltas,
         ], dtype=np.float32)
         return np.clip(vec / RAM_OBS_MAX, 0.0, 1.0)
 
@@ -151,12 +159,25 @@ class MarioReward(gymnasium.Wrapper):
         if self._stuck_steps > self._w("stuck_threshold", 90):
             reward -= self._w("stuck_penalty", 0.5)
 
-        # Proximity jump bonus — near known pipe locations, reward jumping hard
-        # World 1-1 pipes at ~x=224, x=400, x=616, x=790
+        # Proximity jump bonus near pipes
         near_pipe = any(abs(x - px) < 32 for px in [224, 400, 616, 790])
         if near_pipe and action in (2, 3, 4, 5):
-            reward += 0.5  # strong jump signal near pipes
-        elif action in (2, 3, 4, 5):
+            reward += 0.5
+
+        # Enemy dodge bonus — reward jumping when enemy is within 48px ahead
+        try:
+            ram = self.env.unwrapped.ram
+            for i in range(5):
+                etype = ram[0x16 + i]
+                if etype > 0:
+                    ex = ram[0x87 + i]
+                    dist = ex - (x % 256)
+                    if 0 < dist < 48 and action in (2, 3, 4, 5):
+                        reward += 0.3
+        except Exception:
+            pass
+
+        if not near_pipe and action in (2, 3, 4, 5):
             reward += self._w("jump_bonus", 0.05)
 
         self._prev_x = x

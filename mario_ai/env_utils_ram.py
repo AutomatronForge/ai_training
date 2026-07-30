@@ -34,64 +34,52 @@ RAM_OBS_MAX = np.array([
 ], dtype=np.float32)
 
 
-class RAMObservation(gymnasium.ObservationWrapper):
-    """Replace pixel observations with normalized RAM state vector."""
+class RAMObservation(gymnasium.Wrapper):
+    """Replace pixel observations with normalized RAM state vector read from info dict."""
 
     def __init__(self, env):
         super().__init__(env)
         self._prev_x = 0
         self._prev_y = 0
+        self._last_info = {}
         self.observation_space = gymnasium.spaces.Box(
             low=0.0, high=1.0,
             shape=(RAM_OBS_SIZE,),
             dtype=np.float32,
         )
 
-    def observation(self, obs):
-        # obs is the raw pixel frame — we ignore it and use info from RAM
-        # info is accessible via self.env.unwrapped
-        try:
-            u = self.env.unwrapped
-            info = {
-                "x_pos":    getattr(u, "_x_position", 0),
-                "y_pos":    getattr(u, "_y_position", 0),
-                "coins":    getattr(u, "_coins", 0),
-                "score":    getattr(u, "_score", 0),
-                "time":     getattr(u, "_time", 400),
-                "life":     getattr(u, "_life", 2),
-                "world":    getattr(u, "_world", 1),
-                "stage":    getattr(u, "_stage", 1),
-                "status":   getattr(u, "_player_status", "small"),
-                "flag_get": getattr(u, "_flag_get", False),
-            }
-        except Exception:
-            info = {k: 0 for k in ["x_pos","y_pos","coins","score","time","life","world","stage"]}
-            info["status"] = "small"
-            info["flag_get"] = False
-
-        x = info["x_pos"]
-        y = info["y_pos"]
+    def _make_obs(self, info):
+        x = info.get("x_pos", 0)
+        y = info.get("y_pos", 0)
         dx = x - self._prev_x
         dy = y - self._prev_y
         self._prev_x = x
         self._prev_y = y
-
         status = info.get("status", "small")
         vec = np.array([
             x, y, dx, dy,
-            info["coins"],
-            info["score"],
-            info["time"],
-            info["life"],
-            info["world"],
-            info["stage"],
+            info.get("coins", 0),
+            info.get("score", 0),
+            info.get("time", 400),
+            info.get("life", 2),
+            info.get("world", 1),
+            info.get("stage", 1),
             1.0 if status == "small" else 0.0,
             1.0 if status == "tall" else 0.0,
             1.0 if status == "fireball" else 0.0,
-            1.0 if info["flag_get"] else 0.0,
+            1.0 if info.get("flag_get", False) else 0.0,
         ], dtype=np.float32)
-
         return np.clip(vec / RAM_OBS_MAX, 0.0, 1.0)
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        self._prev_x = info.get("x_pos", 0)
+        self._prev_y = info.get("y_pos", 0)
+        return self._make_obs(info), info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return self._make_obs(info), reward, terminated, truncated, info
 
 
 class SkipFrame(gymnasium.Wrapper):

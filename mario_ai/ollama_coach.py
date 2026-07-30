@@ -71,7 +71,7 @@ Respond with ONLY valid JSON, no explanation:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             result = json.loads(resp.read())
             text = result.get("response", "").strip()
             start = text.find("{")

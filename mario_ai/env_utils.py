@@ -103,7 +103,7 @@ class MarioReward(gymnasium.Wrapper):
 
 
 def make_mario_env():
-    env = gym_super_mario_bros.make("SuperMarioBros-v0")
+    env = gym_super_mario_bros.make("SuperMarioBros-v3")
     env = JoypadSpace(env, SIMPLE_MOVEMENT)
     env = GymV21CompatibilityV0(env=env)
     env = SkipFrame(env, skip=2)

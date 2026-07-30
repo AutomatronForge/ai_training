@@ -32,7 +32,7 @@ def _load_config():
         N_ENVS=20, TOTAL_TIMESTEPS=2_000_000, LEARNING_RATE=3e-4,
         CLIP_RANGE=0.2, ENT_COEF=0.01, N_STEPS=1024, BATCH_SIZE=512,
         N_EPOCHS=8, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
-        RESUME=False,
+        RESUME=False, START_STAGE=None, NET_ARCH=None,
     )
     try:
         spec = importlib.util.spec_from_file_location("config", path)
@@ -86,6 +86,7 @@ class StatsCallback(BaseCallback):
         self._deathless_clears = 0       # clears in an episode with no death yet
         self._prev_flag = {}             # per-env: was flag already grabbed?
         self._died_this_ep = {}          # per-env: has a death occurred this episode?
+        self._got_flag_this_ep = {}      # per-env: flag grabbed this episode? (death = ep end w/o flag)
         self._level_clears = {}          # "world-stage" -> count
         self._last_summary_ts = 0        # step of last printed summary
         self._max_x_ever = 0             # deepest x-position reached
@@ -110,18 +111,8 @@ class StatsCallback(BaseCallback):
         actions = self.locals.get("actions", [])
         self._jump_actions += sum(1 for a in actions if a in (2, 3, 4, 5))
         for env_idx, info in enumerate(self.locals.get("infos", [])):
-            if "episode" in info:
-                self._episodes += 1
-                self._rewards.append(info["episode"]["r"])
-                self._died_this_ep[env_idx] = False  # fresh episode, clean slate
-            current_life = info.get("life", 3)
-            if current_life < self._prev_lives.get(env_idx, 3):
-                self._deaths += 1
-                self._died_this_ep[env_idx] = True
-            self._prev_lives[env_idx] = current_life
-
-            # Count each flag grab once (flag_get stays true for several frames)
             flag = bool(info.get("flag_get", False))
+            # Count each flag grab once (flag_get stays true for several frames)
             lvl = f"{info.get('world', 1)}-{info.get('stage', 1)}"
             if flag and not self._prev_flag.get(env_idx, False):
                 self._clears += 1
@@ -132,9 +123,32 @@ class StatsCallback(BaseCallback):
                 print(f"[!] CLEAR #{self._clears} at step {self.num_timesteps} "
                       f"| level {lvl} | {'DEATHLESS' if deathless else 'had death'} "
                       f"| total deaths so far {self._deaths}")
+                self._got_flag_this_ep[env_idx] = True
             self._prev_flag[env_idx] = flag
             if lvl > self._farthest_level:
                 self._farthest_level = lvl
+
+            # Death detection: on the full game `life` decrements; on single-stage
+            # envs (SuperMarioBros-1-2-v0) it does NOT — the episode just terminates
+            # without a flag. So count BOTH: a life drop, OR an episode that ended
+            # without a flag grab. Keeps deaths/clear meaningful in curriculum mode.
+            current_life = info.get("life", 3)
+            if current_life < self._prev_lives.get(env_idx, 3):
+                self._deaths += 1
+                self._died_this_ep[env_idx] = True
+            self._prev_lives[env_idx] = current_life
+
+            if "episode" in info:
+                # episode just ended: if no flag was grabbed this episode, it died
+                if not self._got_flag_this_ep.get(env_idx, False) \
+                        and not self._died_this_ep.get(env_idx, False):
+                    self._deaths += 1
+                    self._died_this_ep[env_idx] = True
+                self._episodes += 1
+                self._rewards.append(info["episode"]["r"])
+                # reset per-episode trackers for the next episode
+                self._died_this_ep[env_idx] = False
+                self._got_flag_this_ep[env_idx] = False
 
             x = info.get("x_pos", 0)
             if x > 0:
@@ -199,7 +213,7 @@ def main(version="v0"):
     ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights,
                        interval=CFG["OLLAMA_INTERVAL"])
 
-    env = make_ram_vec_env(n_envs=N_ENVS, version=version)
+    env = make_ram_vec_env(n_envs=N_ENVS, version=version, stage=CFG.get("START_STAGE"))
 
     callbacks = [
         CheckpointCallback(
@@ -224,6 +238,13 @@ def main(version="v0"):
         # Continue toward the same TOTAL_TIMESTEPS target (remaining budget).
         remaining = max(CFG["TOTAL_TIMESTEPS"] - resume_steps, 0)
     else:
+        # Policy net size from config (default SB3 [64,64]). Bumped to [256,256] for
+        # 1-2: [64,64] mastered 1-1 but plateaued at 1-2's pipe/enemy section across
+        # ~4M steps and 4 reward/obs/timing interventions — capacity is the remaining
+        # hypothesis. Architecture change => cannot resume old checkpoints (fresh run).
+        policy_kwargs = None
+        if CFG.get("NET_ARCH"):
+            policy_kwargs = dict(net_arch=list(CFG["NET_ARCH"]))
         model = PPO(
             "MlpPolicy",
             env,
@@ -234,6 +255,7 @@ def main(version="v0"):
             learning_rate=CFG["LEARNING_RATE"],
             clip_range=CFG["CLIP_RANGE"],
             ent_coef=CFG["ENT_COEF"],
+            policy_kwargs=policy_kwargs,
             verbose=1,
             tensorboard_log="./tensorboard/",
         )

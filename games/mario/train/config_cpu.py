@@ -12,12 +12,23 @@ TRAIN_MODE = "ram_v0"
 # (~1,980 fps); 24 oversubscribes (load >16) and drops to ~1,660 fps.
 N_ENVS = 14
 
-TOTAL_TIMESTEPS = 5_000_000
+# Bumped to 20M: reverted to skip=2 (skip=1 experiment falsified). Data says 1-2's
+# pipe section needs more TRAINING TIME, not more reward/obs hacks (enemy info is
+# already in the obs; reach hits ~x1300 halfway and cleared once). Long runway.
+TOTAL_TIMESTEPS = 20_000_000
 
-# Option B fresh run: obs grew 27 -> 29 (added pit_ahead + dist_to_pit), so old
-# checkpoints are incompatible. Start from step 0. Flip to True to resume THIS
-# series once it has checkpoints.
-RESUME = False
+# RESUME=True: the enemy-dy coordinate-frame BUGFIX changes obs VALUES not SHAPE
+# (still 29), so the current [256,256] checkpoint resumes fine and now receives a
+# CORRECT enemy vertical signal (was garbage: same-level enemies read ~105px below).
+RESUME = True
+
+# Bigger policy net: default [64,64] mastered 1-1 but appears capacity-limited on
+# 1-2's pipe/enemy navigation. [256,256] is the data-motivated next lever. None = SB3 default.
+NET_ARCH = [256, 256]
+
+# CURRICULUM: train DIRECTLY on 1-2 (the fresh bigger net starts here, keeping the
+# curriculum). Obs still 29-value. Set None for default 1-1 start.
+START_STAGE = "1-2"
 
 # PPO hyperparameters
 LEARNING_RATE = 3e-4

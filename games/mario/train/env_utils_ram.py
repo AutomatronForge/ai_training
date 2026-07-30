@@ -27,7 +27,7 @@ RAM_OBS_MAX = np.array([
     1, 1, 1, 1,          # status flags, flag_get
     1, 1, 3000,          # near_wall, very_near_wall, dist_next_wall
     1, 3000,             # pit_ahead, dist_to_pit
-    # enemy deltas — relative to Mario, clamped to ±256
+    # enemy pairs: dx (relative, clamped ±256) + raw screen-y (0-255); 256 normalizes both
     256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
 ], dtype=np.float32)
 
@@ -114,6 +114,12 @@ class RAMObservation(gymnasium.Wrapper):
         enemy_deltas = []
         try:
             ram = self.env.unwrapped.ram
+            # Enemy dx (horizontal) is a clean relative signal. Enemy VERTICAL: RAM 0xCF
+            # does NOT share a frame with any Mario-y (corr with 0x03B8 ~ -0.04), so the
+            # old `ey - y` delta was noise. Verified instead: 0xCF is a stable screen-y
+            # (ground enemies cluster ~184, 90% in 170-184; airborne dip to ~57). So we
+            # pass the RAW enemy screen-y (normalized) — the net learns "~184 = ground
+            # threat in my path" directly, no bogus cross-frame subtraction.
             for i in range(5):
                 ex = ram[0x87 + i]
                 ey = ram[0xCF + i]
@@ -121,12 +127,13 @@ class RAMObservation(gymnasium.Wrapper):
                 if etype > 0:  # active enemy
                     enemy_deltas.extend([
                         np.clip(ex - (x % 256), -256, 256),
-                        np.clip(ey - y, -256, 256),
+                        float(ey),  # raw screen-y (normalized by RAM_OBS_MAX below)
                     ])
                 else:
-                    enemy_deltas.extend([256.0, 256.0])  # no enemy = max distance
+                    # no enemy: max horizontal distance, and y=0 (never a ground threat)
+                    enemy_deltas.extend([256.0, 0.0])
         except Exception:
-            enemy_deltas = [256.0] * 10
+            enemy_deltas = [256.0, 0.0] * 5
 
         vec = np.array([
             x, y, dx, dy,
@@ -274,7 +281,7 @@ class MarioReward(gymnasium.Wrapper):
 
         # enemy-dodge / jump bonuses (coach-tuned)
         if self._enemy_near(x) and action in (2, 3, 4, 5):
-            reward += 0.3
+            reward += 0.5  # raised 0.3->0.5: enemies are the 1-2 blocker (ground deaths)
         if not near_pipe and action in (2, 3, 4, 5):
             reward += self._w("jump_bonus", 0.05)
 
@@ -285,14 +292,19 @@ class MarioReward(gymnasium.Wrapper):
         self._prev_life = life
         return obs, reward, terminated, truncated, info
 
-    def _enemy_near(self, x):
-        """True if an active enemy is within 48px ahead of Mario."""
+    def _enemy_near(self, x, window=80):
+        """True if an active enemy is within `window` px ahead of Mario.
+
+        Widened 48 -> 80px (~5 tiles): on 1-2 the agent dies at x~878 on the ground
+        (0% falls) = enemy kills in the pipe section. 48px gave too little reaction
+        time at running speed; 80px lets the dodge/jump nudge fire early enough.
+        """
         try:
             ram = self.env.unwrapped.ram
             for i in range(5):
                 if ram[0x16 + i] > 0:
                     dist = ram[0x87 + i] - (x % 256)
-                    if 0 < dist < 48:
+                    if 0 < dist < window:
                         return True
         except Exception:
             pass
@@ -321,10 +333,18 @@ class MarioReward(gymnasium.Wrapper):
         return wall, pit
 
 
-def make_mario_ram_env(version="v0"):
-    env = gym_super_mario_bros.make(f"SuperMarioBros-{version}")
+def make_mario_ram_env(version="v0", stage=None):
+    # stage like "1-2" -> train directly on that stage (SuperMarioBros-1-2-v0),
+    # else the plain versioned env (v0 = start at 1-1 and auto-advance).
+    env_id = f"SuperMarioBros-{stage}-{version}" if stage else f"SuperMarioBros-{version}"
+    env = gym_super_mario_bros.make(env_id)
     env = JoypadSpace(env, SIMPLE_MOVEMENT)
     env = GymV21CompatibilityV0(env=env)
+    # skip=2 (reverted from the skip=1 experiment): after ~3.3M steps skip=1 gave
+    # IDENTICAL 1-2 reach (mean ~850, max ~1300, 0 clears) as skip=2 — control timing
+    # was NOT the blocker, hypothesis falsified. Reverting to skip=2 (2x faster
+    # game-time coverage). Enemy info IS in the obs at deaths, so the remaining gap is
+    # training TIME on 1-2's pipe section, not another reward/obs hack. Let it train.
     env = SkipFrame(env, skip=2)
     env = MarioReward(env)
     env = RAMObservation(env)
@@ -332,8 +352,8 @@ def make_mario_ram_env(version="v0"):
     return env
 
 
-def make_ram_vec_env(n_envs=20, version="v0"):
+def make_ram_vec_env(n_envs=20, version="v0", stage=None):
     import functools
-    env_fn = functools.partial(make_mario_ram_env, version=version)
+    env_fn = functools.partial(make_mario_ram_env, version=version, stage=stage)
     env = SubprocVecEnv([env_fn] * n_envs)
     return env

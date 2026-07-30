@@ -1,0 +1,30 @@
+services:
+  mario-train-mac:
+    build:
+      context: ../../train
+      dockerfile: ../docker/mac/Dockerfile
+      platforms:
+        - linux/arm64
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ../../../../models:/app/models
+      - ../../train/config.py:/app/config.py
+      - ../../train/entrypoint.py:/app/entrypoint.py
+      - ../../train/train.py:/app/train.py
+      - ../../train/train_v0.py:/app/train_v0.py
+      - ../../train/train_v3.py:/app/train_v3.py
+      - ../../train/train_ram.py:/app/train_ram.py
+      - ../../train/env_utils.py:/app/env_utils.py
+      - ../../train/env_utils_ram.py:/app/env_utils_ram.py
+      - ../../train/ollama_coach.py:/app/ollama_coach.py
+      - ../../train/viewer.py:/app/viewer.py
+      - ../../train/download_pretrained.py:/app/download_pretrained.py
+      - ./tensorboard:/app/tensorboard
+    ports:
+      - "8080:8080"
+      - "6006:6006"
+    shm_size: '4gb'
+    command: >
+      bash -c "tensorboard --logdir /app/tensorboard --host 0.0.0.0 --port 6006 &
+               python entrypoint.py"

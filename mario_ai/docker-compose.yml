@@ -8,10 +8,11 @@ services:
     volumes:
       - ../models:/app/models
       - ./tensorboard:/app/tensorboard
+      - ./config.py:/app/config.py
     ports:
       - "8080:8080"
       - "6006:6006"
     shm_size: '8gb'
     command: >
       bash -c "tensorboard --logdir /app/tensorboard --host 0.0.0.0 --port 6006 &
-               python train.py"
+               python entrypoint.py"

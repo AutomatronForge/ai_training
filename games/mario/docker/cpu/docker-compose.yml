@@ -1,14 +1,22 @@
 services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    # Pull the coach model on first start, then run the server (CPU inference).
+    entrypoint: >
+      bash -c "ollama serve & sleep 5 && ollama pull llama3.2:3b && wait"
+
   mario-train-cpu:
     build:
       context: ../../train
       dockerfile: ../docker/cpu/Dockerfile
     container_name: cpu-mario-train
+    depends_on:
+      - ollama
     environment:
       - PYTHONUNBUFFERED=1
-      - OLLAMA_HOST=host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - OLLAMA_HOST=ollama
     volumes:
       # Separate config + models dir so this run is fully independent of the GPU run.
       - ../../train/config_cpu.py:/app/config.py
@@ -33,3 +41,7 @@ services:
     command: >
       bash -c "tensorboard --logdir /app/tensorboard --host 0.0.0.0 --port 6006 &
                python entrypoint.py"
+
+volumes:
+  ollama-models:
+

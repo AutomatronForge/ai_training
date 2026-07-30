@@ -6,7 +6,14 @@ echo "=== Mario AI EC2 Setup ==="
 # 0. Install Tailscale
 echo "[0/6] Installing Tailscale..."
 curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --ssh --hostname cloudserver
+# Auth key pulled from Secrets Manager — no key in repo.
+# Requires the instance role to allow secretsmanager:GetSecretValue
+# (+ kms:Decrypt if the secret uses a customer-managed KMS key).
+TS_KEY=$(aws secretsmanager get-secret-value \
+  --region us-west-2 \
+  --secret-id arn:aws:secretsmanager:us-west-2:502142436846:secret:test/case1-YY7CGT \
+  --query SecretString --output text)
+sudo tailscale up --ssh --hostname cloudserver --authkey "$TS_KEY"
 echo "Tailscale up. Reach this box over the tailnet (hostname: cloudserver)."
 
 # 1. Install Ollama

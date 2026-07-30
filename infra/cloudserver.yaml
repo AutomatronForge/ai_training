@@ -73,7 +73,7 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref InstanceLaunchTemplate
         Version: !GetAtt InstanceLaunchTemplate.LatestVersionNumber
-      IamInstanceProfile: Ec2RoleForSSM
+      IamInstanceProfile: cloudserver-profile
       InstanceType: !Ref InstanceType
       ImageId: !Ref AmiId
       SubnetId: !Ref SubnetId

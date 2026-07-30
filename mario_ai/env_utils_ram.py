@@ -10,7 +10,7 @@ from shimmy.openai_gym_compatibility import GymV21CompatibilityV0
 import gymnasium
 import numpy as np
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.monitor import Monitor
 
 # RAM observation vector layout (27 values, all normalized 0-1):
@@ -199,5 +199,4 @@ def make_ram_vec_env(n_envs=20, version="v0"):
     import functools
     env_fn = functools.partial(make_mario_ram_env, version=version)
     env = SubprocVecEnv([env_fn] * n_envs)
-    env = VecNormalize(env, norm_obs=True, norm_reward=True)
     return env

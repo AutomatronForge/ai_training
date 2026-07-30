@@ -72,6 +72,8 @@ class StatsCallback(BaseCallback):
         self._prev_flag = {}             # per-env: was flag already grabbed?
         self._level_clears = {}          # "world-stage" -> count
         self._last_summary_ts = 0        # step of last printed summary
+        self._max_x_ever = 0             # deepest x-position reached
+        self._farthest_level = "1-1"     # highest world-stage seen
 
     def get_stats(self):
         total = max(self._total_actions, 1)
@@ -102,26 +104,49 @@ class StatsCallback(BaseCallback):
 
             # Count each flag grab once (flag_get stays true for several frames)
             flag = bool(info.get("flag_get", False))
+            lvl = f"{info.get('world', 1)}-{info.get('stage', 1)}"
             if flag and not self._prev_flag.get(env_idx, False):
                 self._clears += 1
-                lvl = f"{info.get('world', 1)}-{info.get('stage', 1)}"
                 self._level_clears[lvl] = self._level_clears.get(lvl, 0) + 1
                 print(f"[!] CLEAR #{self._clears} at step {self.num_timesteps} "
                       f"| level {lvl} | total deaths so far {self._deaths}")
             self._prev_flag[env_idx] = flag
+            if lvl > self._farthest_level:
+                self._farthest_level = lvl
 
             x = info.get("x_pos", 0)
             if x > 0:
                 self._x_positions.append(x)
+                if x > self._max_x_ever:
+                    self._max_x_ever = x
 
         # Periodic summary every ~50k steps: clears, deaths, deaths/clear, levels
         if self.num_timesteps - self._last_summary_ts >= 50_000:
             self._last_summary_ts = self.num_timesteps
             dpc = (self._deaths / self._clears) if self._clears else float("nan")
+            eps = max(self._episodes, 1)
             levels = ", ".join(f"{k}:{v}" for k, v in sorted(self._level_clears.items()))
             print(f"[STATS] step={self.num_timesteps} clears={self._clears} "
                   f"deaths={self._deaths} deaths/clear={dpc:.1f} "
-                  f"episodes={self._episodes} levels_cleared[{levels}]")
+                  f"episodes={self._episodes} farthest={self._farthest_level} "
+                  f"levels_cleared[{levels}]")
+
+            # --- TensorBoard scalars (graphed under the "mario/" section) ---
+            log = self.logger
+            log.record("mario/clears_total", self._clears)
+            log.record("mario/deaths_total", self._deaths)
+            log.record("mario/deaths_per_clear",
+                       (self._deaths / self._clears) if self._clears else 0.0)
+            log.record("mario/deaths_per_episode", self._deaths / eps)
+            log.record("mario/episodes_total", self._episodes)
+            log.record("mario/clear_rate_per_episode", self._clears / eps)
+            log.record("mario/max_x_reached", self._max_x_ever)
+            log.record("mario/jump_pct",
+                       self._jump_actions / max(self._total_actions, 1))
+            # per-level clear counts, one line per level (e.g. mario/clears_level/1-1)
+            for k, v in self._level_clears.items():
+                log.record(f"mario/clears_level/{k}", v)
+            log.dump(self.num_timesteps)
         return True
 
 

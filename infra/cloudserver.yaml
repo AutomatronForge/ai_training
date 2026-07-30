@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Base training instance for the Test AI project for learning (ai_training).
+
+# ---------------------------------------------------------------------------
+# Parameters — supply these at deploy time. Fill in the TODOs / your details.
+# ---------------------------------------------------------------------------
+Parameters:
+  InstanceType:
+    Type: String
+    Default: g4dn.2xlarge
+    AllowedValues:
+      - g4dn.xlarge
+      - g4dn.2xlarge
+    Description: GPU instance type. 2xlarge (8 vCPU) recommended for N_ENVS=20.
+
+  # Deep Learning AMI (Ubuntu 22.04). Resolved via SSM so you don't hardcode
+  # a per-region AMI id. Override if you want a pinned AMI.
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id
+    Description: SSM path to the Deep Learning base GPU AMI (Ubuntu 22.04).
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-059cc5d1eac25a351
+    Description: VPC to launch into.
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Default: subnet-0c7d53686c2a09c07
+    Description: Public subnet (needs outbound internet for pip/git).
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-06777192d0a3e6f4f
+    Description: Existing security group to attach to the instance.
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: ai-test
+    Description: EC2 key pair for SSH access.
+
+  RootVolumeSize:
+    Type: Number
+    Default: 100
+    Description: Root EBS volume size in GiB (DL AMI base is large).
+
+  RoleTypeTag:
+    Type: String
+    Default: netadm
+    Description: RoleType tag value (required by policy).
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+  # Launch template carries the IMDSv2 metadata options (not settable
+  # directly on AWS::EC2::Instance).
+  InstanceLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: cloudserver-lt
+      LaunchTemplateData:
+        MetadataOptions:
+          HttpTokens: required          # IMDSv2 required (no IMDSv1)
+          HttpEndpoint: enabled
+          HttpPutResponseHopLimit: 2
+
+  TrainingInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref InstanceLaunchTemplate
+        Version: !GetAtt InstanceLaunchTemplate.LatestVersionNumber
+      IamInstanceProfile: cloudserver-profile
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref SecurityGroupId
+      KeyName: !Ref KeyPairName
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: cloudserver
+        - Key: RoleType
+          Value: !Ref RoleTypeTag
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee /var/log/userdata.log | logger -t userdata -s 2>/dev/console) 2>&1
+
+          # --- Project setup (runs as ubuntu, matches setup_ec2.sh paths) ---
+          sudo -iu ubuntu bash -c '
+            curl -fsSL https://raw.githubusercontent.com/AutomatronForge/ai_training/main/setup_ec2.sh | bash
+          '
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance id.
+    Value: !Ref TrainingInstance

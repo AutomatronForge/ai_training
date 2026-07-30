@@ -14,19 +14,27 @@ Parameters:
       - g4dn.2xlarge
       - c7i.2xlarge
       - c7i.4xlarge
+      - c8i.8xlarge
     Description: >
-      Instance type. GPU (g4dn.*) for pixel/CNN training. CPU-optimized (c7i.*)
-      for RAM/MLP training, which is CPU-bound (the GPU sits idle) — c7i.4xlarge
-      gives 8 physical cores (set N_ENVS~16). For a CPU instance, override AmiId
-      with a plain Ubuntu 22.04 AMI (the default DL GPU AMI is unnecessary there).
+      Instance type. GPU (g4dn.*) for pixel/CNN training — fastest and cheapest
+      per run; use the default DL GPU AMI. CPU-optimized (c7i/c8i.*) for RAM/MLP
+      training, which is CPU-bound (the GPU sits idle): c7i.2xlarge=8 vCPU
+      (N_ENVS~8), c7i.4xlarge=16 vCPU (N_ENVS~16), c8i.8xlarge=32 vCPU
+      (N_ENVS~30). For any CPU type, set AmiId to the Ubuntu 24.04 LTS path.
 
-  # Deep Learning AMI (Ubuntu 22.04). Resolved via SSM so you don't hardcode
-  # a per-region AMI id. Override if you want a pinned AMI — or a plain Ubuntu
-  # 22.04 AMI when launching a CPU-optimized (c7i.*) instance.
-  AmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id
-    Description: SSM path to the Deep Learning base GPU AMI (Ubuntu 22.04). Override for CPU instances.
+  # AMI selection as a friendly dropdown. A plain String with AllowedValues
+  # renders as a proper dropdown in the console (an SSM-typed parameter does
+  # not). The label maps to an SSM public parameter path via AmiPathMap, and
+  # the instance resolves it with a {{resolve:ssm:...}} dynamic reference.
+  AmiChoice:
+    Type: String
+    Default: gpu-dl-ubuntu2204
+    AllowedValues:
+      - gpu-dl-ubuntu2204     # Deep Learning base GPU AMI — for g4dn.* GPU instances.
+      - cpu-ubuntu2404        # Ubuntu 24.04 LTS (HVM), SSD gp3 — for CPU instances.
+    Description: >
+      AMI to launch. gpu-dl-ubuntu2204 = DL GPU AMI (use with g4dn.*).
+      cpu-ubuntu2404 = Ubuntu 24.04 LTS gp3 (use with c7i/c8i.*).
 
   VpcId:
     Type: AWS::EC2::VPC::Id
@@ -59,18 +67,28 @@ Parameters:
     Description: RoleType tag value (required by policy).
 
 # ---------------------------------------------------------------------------
+# Mappings — AMI choice label -> SSM public parameter path.
+# ---------------------------------------------------------------------------
+Mappings:
+  AmiPathMap:
+    gpu-dl-ubuntu2204:
+      SsmPath: /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id
+    cpu-ubuntu2404:
+      SsmPath: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+
+# ---------------------------------------------------------------------------
 # Resources
 # ---------------------------------------------------------------------------
 Resources:
   # Launch template carries the IMDSv2 metadata options (not settable
-  # directly on AWS::EC2::Instance).
+  # directly on AWS::EC2::Instance). No explicit name — CFN auto-generates a
+  # unique one so redeploys don't collide with a leftover template.
   InstanceLaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: cloudserver-lt
       LaunchTemplateData:
         MetadataOptions:
-          HttpTokens: required          # IMDSv2 required (no IMDSv1)
+          HttpTokens: required # IMDSv2 required (no IMDSv1)
           HttpEndpoint: enabled
           HttpPutResponseHopLimit: 2
 
@@ -82,7 +100,9 @@ Resources:
         Version: !GetAtt InstanceLaunchTemplate.LatestVersionNumber
       IamInstanceProfile: cloudserver-profile
       InstanceType: !Ref InstanceType
-      ImageId: !Ref AmiId
+      ImageId: !Sub
+        - "{{resolve:ssm:${Path}}}"
+        - Path: !FindInMap [AmiPathMap, !Ref AmiChoice, SsmPath]
       SubnetId: !Ref SubnetId
       SecurityGroupIds:
         - !Ref SecurityGroupId

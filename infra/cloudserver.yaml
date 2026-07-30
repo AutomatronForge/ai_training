@@ -13,16 +13,22 @@ Parameters:
       - g4dn.xlarge
       - g4dn.2xlarge
       - g5.xlarge
+      - g5.2xlarge
+      - g5.4xlarge
+      - g5.8xlarge
       - c7i.2xlarge
       - c7i.4xlarge
       - c8i.8xlarge
     Description: >
-      Instance type. GPU for pixel/CNN training — use the default DL GPU AMI:
-      g4dn.* = NVIDIA T4 (16GB), g5.xlarge = NVIDIA A10G (24GB, faster/newer,
-      ~$1/hr vs g4dn.xlarge ~$0.53). CPU-optimized (c7i/c8i.*) for RAM/MLP
-      training, which is CPU-bound (the GPU sits idle): c7i.2xlarge=8 vCPU
-      (N_ENVS~8), c7i.4xlarge=16 vCPU (N_ENVS~16), c8i.8xlarge=32 vCPU
-      (N_ENVS~30). For any CPU type, set AmiChoice to cpu-ubuntu2404.
+      Instance type. GPU for pixel/CNN training (default DL GPU AMI):
+      g4dn.* = NVIDIA T4 (16GB); g5.* = NVIDIA A10G (24GB, faster/newer), all
+      single-GPU, differing only in vCPU/RAM — which matters most here because
+      NES env-stepping is CPU-bound (pick N_ENVS ~= vCPU count):
+      g5.xlarge=4 vCPU/16GB (~$1.01/hr, N_ENVS~4), g5.2xlarge=8 vCPU/32GB
+      (~$1.21/hr, N_ENVS~8), g5.4xlarge=16 vCPU/64GB (~$1.62/hr, N_ENVS~16),
+      g5.8xlarge=32 vCPU/128GB (~$2.45/hr, N_ENVS~30). CPU-optimized (c7i/c8i.*)
+      for RAM/MLP training (GPU sits idle): c7i.2xlarge=8 vCPU, c7i.4xlarge=16
+      vCPU, c8i.8xlarge=32 vCPU. For any CPU type, set AmiChoice to cpu-ubuntu2404.
 
   # AMI selection as a friendly dropdown. A plain String with AllowedValues
   # renders as a proper dropdown in the console (an SSM-typed parameter does

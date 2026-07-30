@@ -4,8 +4,8 @@
 **Read first:** README.md, TENSORBOARD_GUIDE.md, this file.
 
 AI retro-game training (PPO + Ollama reward shaping). **Current focus: PIXEL/CNN
-training toward all 32 levels, after the RAM-observation agent hit a proven ceiling
-at World 1-2.**
+training toward all 32 levels — now LIVE on a GPU (T4), after the RAM-observation agent
+hit a proven ceiling at World 1-2.**
 
 ## Current Status (2026-07-30)
 
@@ -18,11 +18,27 @@ at World 1-2.**
 - **Pixel path ported to full feature-parity** with the RAM framework (config wiring,
   resume, `mario/*` metrics, deep reward shaping, curriculum stage support) and
   **validated on CPU** (correctness only — CnnPolicy on CPU is slow ~765 fps).
-- **Ready to launch a GPU box** for real pixel training. GPU `config.py` is set to
-  `pixel_v0`, `N_ENVS="auto"`.
-- **Hardware note:** the box this was developed on is **CPU-only** (16 physical cores /
-  32 vCPU / 61 GB RAM) — NOT the g4dn the older handoffs assumed. Real pixel training
-  needs a GPU instance (see Launching a GPU box).
+- **GPU pixel training is now LIVE.** Running on a **Tesla T4 (16GB) g4dn.2xlarge**
+  (8 vCPU): cuda stack up, `pixel_v0` on 1-1, `RESUME=False` (fresh run), `N_ENVS="auto"`
+  → **7 envs** (vCPUs-1). Steady **~433 fps**, checkpoints every 50K steps as
+  `mario_v0_ppo_*_steps.zip` in `models/`. **ETA ~6.4h for 10M steps** on this box.
+- **GPU is expected to sit near-idle (~2% util, 3.3/15GB mem)** — pixel training is
+  **CPU-bound on env-stepping**, not GPU-bound. The CNN is tiny; the T4 waits on the 7
+  CPU envs. So **N_ENVS scales with vCPU, not GPU.** Adding envs beyond ~vCPUs-1 on a
+  given box oversubscribes cores (fps flat/worse, raises SubprocVecEnv-deadlock risk).
+  To go faster, get **more vCPUs**, not a bigger GPU: g5.4xlarge (16 vCPU → ~15 envs,
+  ~930 fps, ~3h) / g5.8xlarge (32 vCPU → ~31 envs, ~1,920 fps, ~1.4h). (Est. ~62 fps/env,
+  linear; real scaling ~10-20% short of that.) N_ENVS change is NOT an obs-shape change —
+  can resume the latest checkpoint on a bigger box.
+- **NEXT (in-flight):** user is **switching to a larger-vCPU instance** (g5.4xlarge or
+  g5.8xlarge) via the console to speed the run up. On relaunch, `N_ENVS="auto"` re-sizes
+  to the new box automatically.
+- **Early learning signal to watch:** `mario/max_x_reached` on 1-1 plateaued at **~1656**
+  (flag ~x3161), 0 clears, deaths climbing — but this was only ~300K/10M steps in (~17 min),
+  too early to judge. The pivotal question is whether pixel obs clears 1-1 and breaks the
+  RAM 1-2 ceiling; expect an answer well before 10M steps.
+- **Hardware note:** the box the framework was *developed* on was CPU-only (16 physical /
+  32 vCPU / 61 GB RAM). Current training box is the T4 GPU above (or its g5 successor).
 
 ## Repo Structure
 
@@ -127,8 +143,9 @@ SSH port-forward: `ssh -L 8080:localhost:8080 -L 6006:localhost:6006 -L 8082:loc
 
 ## What's Next
 
-1. **Launch a GPU box** (g5.2xlarge or g5.4xlarge recommended) and train pixel `pixel_v0`
-   on 1-1 to competence — the real test of whether pixel obs beats the RAM 1-2 ceiling.
+1. **GPU pixel training is running** (see Current Status). Let `pixel_v0` train on 1-1 to
+   competence — the real test of whether pixel obs beats the RAM 1-2 ceiling. Watch
+   `mario/max_x_reached` break past ~1656 and `mario/clears_total` go positive.
 2. **If pixel clears 1-2** → advance the curriculum (`START_STAGE="1-3"`, then toward v3)
    and re-establish the monitoring loop (health checks + Slack + autonomous decision rules).
 3. **v3 (all 32 levels)** with pixel obs + big step budget once the curriculum proves out.
@@ -136,8 +153,11 @@ SSH port-forward: `ssh -L 8080:localhost:8080 -L 6006:localhost:6006 -L 8082:loc
 
 ## Known gaps
 
-- Pixel training only validated for correctness on CPU; **not yet run on GPU / to competence.**
-- `models/` (GPU) will be empty until a GPU box runs; pixel checkpoints save as
-  `mario_v0_ppo_*_steps.zip` (matches the resume glob).
+- Pixel training is **live on GPU (T4)** but **not yet run to competence** — no clears
+  of 1-1 yet as of ~300K steps.
+- `models/` (GPU) now has `mario_v0_ppo_*_steps.zip` checkpoints from the live run
+  (matches the resume glob).
 - The autonomous monitoring loop (10-min cron → Slack) is currently **paused/deleted** —
-  re-create it once GPU training is live if you want hands-off monitoring.
+  re-create it now that GPU training is live if you want hands-off monitoring.
+- **Watch for SubprocVecEnv deadlock** on the long run (documented failure mode: one core
+  pegged, logs freeze) — recover with `docker compose down && up` (NOT `restart`).

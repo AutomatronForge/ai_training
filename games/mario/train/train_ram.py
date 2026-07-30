@@ -23,7 +23,30 @@ import viewer
 import ollama_coach
 from env_utils import init_shared_weights
 
-N_ENVS = 20
+
+def _load_config():
+    """Read tunables from config.py (volume-mounted), fall back to defaults."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(__file__), "config.py")
+    defaults = dict(
+        N_ENVS=20, TOTAL_TIMESTEPS=2_000_000, LEARNING_RATE=3e-4,
+        CLIP_RANGE=0.2, ENT_COEF=0.01, N_STEPS=1024, BATCH_SIZE=512,
+        N_EPOCHS=8, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
+    )
+    try:
+        spec = importlib.util.spec_from_file_location("config", path)
+        cfg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cfg)
+        for k in defaults:
+            if hasattr(cfg, k):
+                defaults[k] = getattr(cfg, k)
+    except Exception as e:
+        print(f"[train_ram] Could not load config.py ({e}) — using defaults")
+    return defaults
+
+
+CFG = _load_config()
+N_ENVS = CFG["N_ENVS"]
 
 
 def get_device():
@@ -99,13 +122,16 @@ def main(version="v0"):
 
     viewer.start(n_envs=N_ENVS)
     stats_cb = StatsCallback()
-    ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights, interval=5000)
+    ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights,
+                       interval=CFG["OLLAMA_INTERVAL"])
 
     env = make_ram_vec_env(n_envs=N_ENVS, version=version)
 
     callbacks = [
         CheckpointCallback(
-            save_freq=50_000,
+            # save_freq counts rollout steps (per-env), not timesteps — divide by N_ENVS
+            # so checkpoints land every CHECKPOINT_FREQ *timesteps* as intended.
+            save_freq=max(CFG["CHECKPOINT_FREQ"] // N_ENVS, 1),
             save_path="models/",
             name_prefix=f"mario_ram_{version}_ppo",
         ),
@@ -117,21 +143,22 @@ def main(version="v0"):
         "MlpPolicy",
         env,
         device=device,
-        n_steps=1024,
-        batch_size=512,
-        n_epochs=8,
-        learning_rate=3e-4,
-        clip_range=0.2,
-        ent_coef=0.01,
+        n_steps=CFG["N_STEPS"],
+        batch_size=CFG["BATCH_SIZE"],
+        n_epochs=CFG["N_EPOCHS"],
+        learning_rate=CFG["LEARNING_RATE"],
+        clip_range=CFG["CLIP_RANGE"],
+        ent_coef=CFG["ENT_COEF"],
         verbose=1,
         tensorboard_log="./tensorboard/",
     )
 
     print(f"Training started (RAM obs, {version}).")
+    print(f"  N_ENVS={N_ENVS} | TOTAL_TIMESTEPS={CFG['TOTAL_TIMESTEPS']}")
     print("  Live viewer:  http://localhost:8080")
     print("  TensorBoard: http://localhost:6006\n")
 
-    model.learn(total_timesteps=2_000_000, callback=callbacks)
+    model.learn(total_timesteps=CFG["TOTAL_TIMESTEPS"], callback=callbacks)
     model.save(f"models/mario_ram_{version}_final")
     print(f"\nDone. Model saved to models/mario_ram_{version}_final.zip")
     env.close()

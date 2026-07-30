@@ -23,7 +23,30 @@ import viewer
 import ollama_coach
 from env_utils import init_shared_weights
 
-N_ENVS = 20
+
+def _load_config():
+    """Read tunables from config.py (volume-mounted), fall back to defaults."""
+    import importlib.util
+    path = os.path.join(os.path.dirname(__file__), "config.py")
+    defaults = dict(
+        N_ENVS=20, TOTAL_TIMESTEPS=2_000_000, LEARNING_RATE=3e-4,
+        CLIP_RANGE=0.2, ENT_COEF=0.01, N_STEPS=1024, BATCH_SIZE=512,
+        N_EPOCHS=8, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
+    )
+    try:
+        spec = importlib.util.spec_from_file_location("config", path)
+        cfg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cfg)
+        for k in defaults:
+            if hasattr(cfg, k):
+                defaults[k] = getattr(cfg, k)
+    except Exception as e:
+        print(f"[train_ram] Could not load config.py ({e}) — using defaults")
+    return defaults
+
+
+CFG = _load_config()
+N_ENVS = CFG["N_ENVS"]
 
 
 def get_device():
@@ -44,6 +67,13 @@ class StatsCallback(BaseCallback):
         self._total_actions = 0
         self._prev_lives = {}
         self._x_positions = []
+        # richer metrics
+        self._clears = 0                 # total flagpole grabs (deduped)
+        self._prev_flag = {}             # per-env: was flag already grabbed?
+        self._level_clears = {}          # "world-stage" -> count
+        self._last_summary_ts = 0        # step of last printed summary
+        self._max_x_ever = 0             # deepest x-position reached
+        self._farthest_level = "1-1"     # highest world-stage seen
 
     def get_stats(self):
         total = max(self._total_actions, 1)
@@ -71,11 +101,52 @@ class StatsCallback(BaseCallback):
             if current_life < self._prev_lives.get(env_idx, 3):
                 self._deaths += 1
             self._prev_lives[env_idx] = current_life
-            if info.get("flag_get", False):
-                print(f"[!] Mario cleared the level at step {self.num_timesteps}!")
+
+            # Count each flag grab once (flag_get stays true for several frames)
+            flag = bool(info.get("flag_get", False))
+            lvl = f"{info.get('world', 1)}-{info.get('stage', 1)}"
+            if flag and not self._prev_flag.get(env_idx, False):
+                self._clears += 1
+                self._level_clears[lvl] = self._level_clears.get(lvl, 0) + 1
+                print(f"[!] CLEAR #{self._clears} at step {self.num_timesteps} "
+                      f"| level {lvl} | total deaths so far {self._deaths}")
+            self._prev_flag[env_idx] = flag
+            if lvl > self._farthest_level:
+                self._farthest_level = lvl
+
             x = info.get("x_pos", 0)
             if x > 0:
                 self._x_positions.append(x)
+                if x > self._max_x_ever:
+                    self._max_x_ever = x
+
+        # Periodic summary every ~50k steps: clears, deaths, deaths/clear, levels
+        if self.num_timesteps - self._last_summary_ts >= 50_000:
+            self._last_summary_ts = self.num_timesteps
+            dpc = (self._deaths / self._clears) if self._clears else float("nan")
+            eps = max(self._episodes, 1)
+            levels = ", ".join(f"{k}:{v}" for k, v in sorted(self._level_clears.items()))
+            print(f"[STATS] step={self.num_timesteps} clears={self._clears} "
+                  f"deaths={self._deaths} deaths/clear={dpc:.1f} "
+                  f"episodes={self._episodes} farthest={self._farthest_level} "
+                  f"levels_cleared[{levels}]")
+
+            # --- TensorBoard scalars (graphed under the "mario/" section) ---
+            log = self.logger
+            log.record("mario/clears_total", self._clears)
+            log.record("mario/deaths_total", self._deaths)
+            log.record("mario/deaths_per_clear",
+                       (self._deaths / self._clears) if self._clears else 0.0)
+            log.record("mario/deaths_per_episode", self._deaths / eps)
+            log.record("mario/episodes_total", self._episodes)
+            log.record("mario/clear_rate_per_episode", self._clears / eps)
+            log.record("mario/max_x_reached", self._max_x_ever)
+            log.record("mario/jump_pct",
+                       self._jump_actions / max(self._total_actions, 1))
+            # per-level clear counts, one line per level (e.g. mario/clears_level/1-1)
+            for k, v in self._level_clears.items():
+                log.record(f"mario/clears_level/{k}", v)
+            log.dump(self.num_timesteps)
         return True
 
 
@@ -99,13 +170,16 @@ def main(version="v0"):
 
     viewer.start(n_envs=N_ENVS)
     stats_cb = StatsCallback()
-    ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights, interval=5000)
+    ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights,
+                       interval=CFG["OLLAMA_INTERVAL"])
 
     env = make_ram_vec_env(n_envs=N_ENVS, version=version)
 
     callbacks = [
         CheckpointCallback(
-            save_freq=50_000,
+            # save_freq counts rollout steps (per-env), not timesteps — divide by N_ENVS
+            # so checkpoints land every CHECKPOINT_FREQ *timesteps* as intended.
+            save_freq=max(CFG["CHECKPOINT_FREQ"] // N_ENVS, 1),
             save_path="models/",
             name_prefix=f"mario_ram_{version}_ppo",
         ),
@@ -117,21 +191,22 @@ def main(version="v0"):
         "MlpPolicy",
         env,
         device=device,
-        n_steps=1024,
-        batch_size=512,
-        n_epochs=8,
-        learning_rate=3e-4,
-        clip_range=0.2,
-        ent_coef=0.01,
+        n_steps=CFG["N_STEPS"],
+        batch_size=CFG["BATCH_SIZE"],
+        n_epochs=CFG["N_EPOCHS"],
+        learning_rate=CFG["LEARNING_RATE"],
+        clip_range=CFG["CLIP_RANGE"],
+        ent_coef=CFG["ENT_COEF"],
         verbose=1,
         tensorboard_log="./tensorboard/",
     )
 
     print(f"Training started (RAM obs, {version}).")
+    print(f"  N_ENVS={N_ENVS} | TOTAL_TIMESTEPS={CFG['TOTAL_TIMESTEPS']}")
     print("  Live viewer:  http://localhost:8080")
     print("  TensorBoard: http://localhost:6006\n")
 
-    model.learn(total_timesteps=2_000_000, callback=callbacks)
+    model.learn(total_timesteps=CFG["TOTAL_TIMESTEPS"], callback=callbacks)
     model.save(f"models/mario_ram_{version}_final")
     print(f"\nDone. Model saved to models/mario_ram_{version}_final.zip")
     env.close()

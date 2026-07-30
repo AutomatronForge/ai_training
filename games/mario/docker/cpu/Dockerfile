@@ -26,8 +26,8 @@ RUN pip install --upgrade pip && \
     pip uninstall -y numpy && \
     pip install --no-cache-dir --force-reinstall "numpy==1.26.4"
 
-COPY env_utils.py train.py viewer.py ./
+COPY env_utils.py env_utils_ram.py train.py train_v0.py train_v3.py train_ram.py viewer.py ollama_coach.py download_pretrained.py entrypoint.py config.py ./
 
 EXPOSE 8080 6006
 
-CMD ["python", "train.py"]
+CMD ["python", "entrypoint.py"]

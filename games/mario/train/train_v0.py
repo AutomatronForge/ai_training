@@ -130,7 +130,7 @@ def main():
     model.verbose = 1
 
     callbacks = [
-        CheckpointCallback(save_freq=50_000, save_path="models/", name_prefix="mario_v0_ppo"),
+        CheckpointCallback(save_freq=max(50_000 // N_ENVS, 1), save_path="models/", name_prefix="mario_v0_ppo"),
         stats_cb,
     ]
 

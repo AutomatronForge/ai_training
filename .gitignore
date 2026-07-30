@@ -9,6 +9,8 @@ models/
 mario_ai/tensorboard/
 mario_ai_mac/tensorboard/
 mario_ai_cpu/tensorboard/
+games/mario/docker/*/tensorboard/
+tensorboard/
 *.zip
 *.tar.gz
 

@@ -3,12 +3,16 @@ services:
     build:
       context: ../../train
       dockerfile: ../docker/cpu/Dockerfile
+    container_name: cpu-mario-train
     environment:
       - PYTHONUNBUFFERED=1
-      - N_ENVS=4
+      - OLLAMA_HOST=host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - ../../../../models:/app/models
-      - ../../train/config.py:/app/config.py
+      # Separate config + models dir so this run is fully independent of the GPU run.
+      - ../../train/config_cpu.py:/app/config.py
+      - ../../../../models_cpu:/app/models
       - ../../train/entrypoint.py:/app/entrypoint.py
       - ../../train/train.py:/app/train.py
       - ../../train/train_v0.py:/app/train_v0.py
@@ -21,8 +25,10 @@ services:
       - ../../train/download_pretrained.py:/app/download_pretrained.py
       - ./tensorboard:/app/tensorboard
     ports:
-      - "8081:8080"
-      - "6007:6006"
+      # Distinct host ports so it never clashes with the GPU run (8080/6006)
+      # or the showcase (8081).
+      - "8082:8080"
+      - "6008:6006"
     shm_size: '2gb'
     command: >
       bash -c "tensorboard --logdir /app/tensorboard --host 0.0.0.0 --port 6006 &

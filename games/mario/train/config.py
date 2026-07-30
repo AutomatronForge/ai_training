@@ -21,7 +21,10 @@ BATCH_SIZE = 512
 N_EPOCHS = 8
 
 # Ollama coach interval (steps between LLM queries)
-OLLAMA_INTERVAL = 5000
+# Widened 5000 -> 50000: at 5k the coach reweighted rewards so often that the
+# value function couldn't converge (explained_variance plateaued ~0.3 instead of
+# climbing). Fewer, larger-spaced updates give the critic a stable target.
+OLLAMA_INTERVAL = 50000
 
 # Checkpoint save frequency
 CHECKPOINT_FREQ = 50_000

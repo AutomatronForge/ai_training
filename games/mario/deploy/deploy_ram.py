@@ -174,10 +174,6 @@ class ObsBuilder:
                 ])
             else:
                 enemy_deltas.extend([256.0, 256.0])
-                    np.clip(ey - y, -256, 256),
-                ])
-            else:
-                enemy_deltas.extend([256.0, 256.0])
 
         vec = np.array([
             x, y, dx, dy,

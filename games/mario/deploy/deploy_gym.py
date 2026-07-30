@@ -141,9 +141,16 @@ def main(model_path, version="v0", fps=30, episodes=10):
             if step < 10:
                 print(f"  step={step} x={info.get('x_pos',0)} action={ACTION_NAMES[action_int]} obs[:4]={obs[:4].round(3)}")
 
-            obs_gym, reward, terminated, truncated, info = env.step(action_int)
-            ep_reward += reward
-            done = terminated or truncated
+            # Frame skip: repeat the predicted action SKIP frames to match training
+            # (env_utils_ram.SkipFrame(skip=2)). Model was trained on 2-frame action
+            # repeat, so deploy must do the same or dynamics/timing diverge.
+            SKIP = 2
+            for _ in range(SKIP):
+                obs_gym, reward, terminated, truncated, info = env.step(action_int)
+                ep_reward += reward
+                done = terminated or truncated
+                if done:
+                    break
 
             # Render via unwrapped nes_py env directly
             frame = unwrapped.render(mode="rgb_array")

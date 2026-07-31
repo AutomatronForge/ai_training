@@ -26,11 +26,15 @@ RESUME = True
 NET_ARCH = None
 
 # Curriculum: None = start at 1-1 (auto-advance). Set e.g. "1-2" to train a stage directly.
-START_STAGE = "1-1"
+START_STAGE = None
+
+# All-levels training: spread the 32 levels across the env vector (each env a
+# different level) so every gradient step sees a mixture — anti-forgetting.
+RANDOM_STAGES = True
 
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
-RUN_NAME = ""
+RUN_NAME = "alllevels"
 
 # PPO hyperparameters (pixel/CNN)
 LEARNING_RATE = 2.5e-4

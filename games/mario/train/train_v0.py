@@ -36,7 +36,7 @@ def _load_config():
         N_ENVS=8, TOTAL_TIMESTEPS=5_000_000, LEARNING_RATE=2.5e-4,
         CLIP_RANGE=0.2, ENT_COEF=0.05, N_STEPS=1024, BATCH_SIZE=1024,
         N_EPOCHS=4, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
-        RESUME=False, START_STAGE=None, NET_ARCH=None, RUN_NAME="",
+        RESUME=False, START_STAGE=None, NET_ARCH=None, RUN_NAME="", RANDOM_STAGES=False,
     )
     try:
         spec = importlib.util.spec_from_file_location("config", path)
@@ -328,7 +328,8 @@ def main(version="v0"):
     ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights,
                        interval=CFG["OLLAMA_INTERVAL"])
 
-    env = make_vec_env(n_envs=N_ENVS, version=version, stage=CFG.get("START_STAGE"))
+    env = make_vec_env(n_envs=N_ENVS, version=version, stage=CFG.get("START_STAGE"),
+                       random_stages=CFG.get("RANDOM_STAGES", False))
 
     callbacks = [
         CheckpointCallback(

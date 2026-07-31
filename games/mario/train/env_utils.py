@@ -14,6 +14,9 @@ from stable_baselines3.common.vec_env import (
 # Shared weights dict — lives in parent process, readable by subprocesses via Manager
 _shared_weights = None
 
+# All 32 SMB levels (world-stage), for random-stage / all-levels training.
+ALL_STAGES = [f"{w}-{s}" for w in range(1, 9) for s in range(1, 5)]
+
 
 def init_shared_weights(manager, default_weights):
     global _shared_weights
@@ -93,7 +96,22 @@ class MarioReward(gymnasium.Wrapper):
     FIREBALL_USE    = 0.5     # fired while in fireball state (uses the power-up)
     DEATH_PENALTY   = 25.0    # base penalty for dying (episode ends w/o flag)
     DEATH_PROGRESS_SCALE = 25.0  # extra penalty scaled by fraction of level reached
-    FLAG_X          = 3161    # x_pos of the 1-1 flagpole (progress denominator)
+    # Per-level flagpole x (progress denominator for the death penalty). SMB flag
+    # positions vary by level; using 1-1's 3161 everywhere miscalibrated the
+    # penalty on the other 31 levels. Known values below; DEFAULT_FLAG_X covers
+    # the rest (most levels' flags sit ~2600-3300). progress_frac is clamped to
+    # [0,1] so an over/under estimate never breaks the penalty scale.
+    DEFAULT_FLAG_X  = 3000
+    FLAG_X_BY_LEVEL = {
+        "1-1": 3161, "1-2": 2560, "1-3": 2560, "1-4": 2048,
+        "2-1": 3161, "2-2": 2560, "2-3": 3584, "2-4": 2048,
+        "3-1": 3161, "3-2": 3520, "3-3": 2560, "3-4": 2048,
+        "4-1": 3584, "4-2": 3072, "4-3": 2560, "4-4": 2048,
+        "5-1": 3161, "5-2": 3400, "5-3": 2560, "5-4": 2048,
+        "6-1": 3072, "6-2": 3968, "6-3": 2560, "6-4": 2048,
+        "7-1": 3161, "7-2": 2560, "7-3": 3584, "7-4": 2048,
+        "8-1": 3968, "8-2": 3584, "8-3": 3584, "8-4": 2048,
+    }
     STATUS_RANK     = {"small": 0, "tall": 1, "fireball": 2}
     KILL_SCORES     = {100, 200, 400, 500, 800, 1000, 2000, 4000, 8000}
     FIRE_ACTIONS    = {3, 4}  # SIMPLE_MOVEMENT run/B actions throw fireballs when fiery
@@ -198,7 +216,9 @@ class MarioReward(gymnasium.Wrapper):
         # so the agent learns not to waste a good run.
         died = (terminated or truncated) and not bool(info.get("flag_get", False))
         if died:
-            progress_frac = min(self._max_x / self.FLAG_X, 1.0)
+            lvl = f"{info.get('world', 1)}-{info.get('stage', 1)}"
+            flag_x = self.FLAG_X_BY_LEVEL.get(lvl, self.DEFAULT_FLAG_X)
+            progress_frac = min(self._max_x / flag_x, 1.0)
             reward -= self.DEATH_PENALTY + progress_frac * self.DEATH_PROGRESS_SCALE
 
         # enemy-dodge / jump bonuses (coach-tuned)
@@ -276,13 +296,20 @@ def make_mario_env(version="v3", stage=None, expose_rgb=False):
     return env
 
 
-def make_vec_env(n_envs=8, version="v3", stage=None):
+def make_vec_env(n_envs=8, version="v3", stage=None, random_stages=False):
     import functools
     # Only env 0 can expose its raw RGB frame (and only when the viewer's color
     # toggle is on) — the one env the viewer shows. Keeps the color cost off the
     # other 30 envs entirely.
+    # random_stages: spread the 32 levels across the env vector (each env pinned
+    # to a different level, round-robin) so every gradient step sees a mixture of
+    # levels — the anti-forgetting cure for a generalist across all levels.
+    if random_stages:
+        stages = [ALL_STAGES[i % len(ALL_STAGES)] for i in range(n_envs)]
+    else:
+        stages = [stage] * n_envs
     env_fns = [
-        functools.partial(make_mario_env, version=version, stage=stage,
+        functools.partial(make_mario_env, version=version, stage=stages[i],
                           expose_rgb=(i == 0))
         for i in range(n_envs)
     ]

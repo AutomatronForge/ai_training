@@ -117,7 +117,20 @@ class BestCheckpointCallback(BaseCallback):
         self._outcomes = collections.deque(maxlen=window)  # 1=clear, 0=death
         self._prev_flag = {}       # per-env: flag already grabbed this episode?
         self._episodes = 0
+        # Seed the high-water mark from any existing best on disk, so a WARM-START
+        # restart (where this object resets to -1) can NOT clobber a higher-scoring
+        # saved model with an early, weaker snapshot. (This bit us: a 76.2% best got
+        # overwritten by a 56% early-warmstart save.) Only a strictly higher recent
+        # clear% will overwrite the banked best.
         self._best_pct = -1.0
+        try:
+            pct_file = f"models/best/mario_{tag}_best.pct"
+            if os.path.exists(pct_file):
+                with open(pct_file) as f:
+                    self._best_pct = float(f.read().strip())
+                print(f"[best-ckpt] seeded high-water from disk: {self._best_pct:.1f}%")
+        except Exception as e:
+            print(f"[best-ckpt] could not seed high-water: {e}")
 
     def _save_atomic(self, path):
         """Save to a temp file then os.replace → the final file is never seen

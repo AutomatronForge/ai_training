@@ -18,12 +18,10 @@ N_ENVS = "auto"
 # Total training steps (real 1-1 pixel run; CNN needs more steps than the MLP).
 TOTAL_TIMESTEPS = 30_000_000
 
-# Fresh pixel run; flip True to resume the newest models/mario_v0_ppo_*_steps.zip.
-# RESTART: was False for the fresh spec-1-1-v2 launch. Flipped True 2026-08-01
-# mid-run so any restart (crash recovery, or promotion) RESUMES from the newest
-# valid checkpoint + picks up the fixed peak-protector — instead of wiping the
-# in-progress climb by starting from scratch.
-RESUME = True
+# RESTART: was True during v2. Set False for v3 so WARM_START_FROM (the banked
+# 76.2% best) is used — NOT a resume of the collapsed v2 checkpoints. Flip True
+# only if v3 itself crashes mid-run and needs to continue its own checkpoints.
+RESUME = False
 
 # IMPALA-CNN: bigger residual conv features extractor (capacity for many levels;
 # the default NatureCNN hit a ceiling and forgot levels). Fresh run when toggled
@@ -37,7 +35,11 @@ SPECIALIST_LEVEL = "1-1"      # the level this run trains (drives ckpt tag + fin
 # WARM_START_FROM: load weights from a prior FINAL specialist, then train FRESH on
 # SPECIALIST_LEVEL (resets step counter; NOT a resume). "" = scratch (1-1).
 # For 1-2: "models/specialists/mario_1-1_final.zip", etc.
-WARM_START_FROM = ""
+# COLLAPSE-2 RECOVERY: spec-1-1-v2 peaked 76.2% then collapsed to 0% again (this
+# time clip_fraction fell to 0.07 + entropy shrank = policy OVER-narrowed and lost
+# its clearing behavior — opposite failure mode to v1's 0.5 blow-up). Warm-start
+# from the banked 76.2% best and RAISE entropy to keep exploration alive late.
+WARM_START_FROM = "models/best/mario_v0_1-1_best.zip"
 
 # CnnPolicy: None = SB3 default NatureCNN + MLP head. (NET_ARCH sizes only the
 # MLP head after the conv stack for CnnPolicy.)
@@ -55,15 +57,16 @@ CURRICULUM = False
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
 # spec-1-1-v2: clean run after the collapse — flag-clear reward + safer hypers.
-RUN_NAME = "spec-1-1-v2"
+RUN_NAME = "spec-1-1-v3"
 
 # PPO hyperparameters (pixel/CNN)
-# COLLAPSE FIX: the first spec-1-1 hit 71% then cratered to 0% (clip_fraction ~0.5
-# = a too-large policy update wrecked the policy at its peak). Lower LR + lower
-# entropy make updates gentler and less prone to that blow-up.
-LEARNING_RATE = 1.0e-4        # was 2.5e-4 — smaller, safer steps
+# COLLAPSE HISTORY: v1 hit 71% then cratered (clip~0.5 = too-big updates). v2 hit
+# 76.2% then cratered (clip fell to 0.07 + entropy shrank = policy OVER-narrowed,
+# lost exploration). v3: warm-start from the 76.2% best, keep LR gentle, and RAISE
+# entropy back to 0.03 so the policy keeps enough exploration to not collapse late.
+LEARNING_RATE = 1.0e-4        # gentle steps (kept from v2)
 CLIP_RANGE = 0.2
-ENT_COEF = 0.02               # was 0.05 — less random exploration late = fewer collapse-inducing swings
+ENT_COEF = 0.03               # v2 used 0.02 and over-narrowed; nudge up to hold late-training exploration
 N_STEPS = 1024
 BATCH_SIZE = 1024
 N_EPOCHS = 4

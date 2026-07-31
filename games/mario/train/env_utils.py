@@ -105,8 +105,18 @@ class MarioReward(gymnasium.Wrapper):
     POWERDOWN_PEN   = 10.0    # lost a power-up (hit while big) — softer than a death
     KILL_BONUS      = 5.0     # stomped/killed an enemy (inferred from score jump)
     FIREBALL_USE    = 0.5     # fired while in fireball state (uses the power-up)
-    DEATH_PENALTY   = 25.0    # base penalty for dying (episode ends w/o flag)
+    DEATH_PENALTY   = 40.0    # base penalty for dying (episode ends w/o flag)
     DEATH_PROGRESS_SCALE = 25.0  # extra penalty scaled by fraction of level reached
+    # Terminal reward for grabbing the flag (clearing the level). Previously there
+    # was NO explicit clear reward — finishing was only implicitly rewarded by
+    # avoiding the death penalty. This large terminal bonus makes FINISHING by far
+    # the best outcome: it dwarfs any rush-and-die trajectory and can never be
+    # earned by camping, so it encodes "clear the level" (and, since a single-stage
+    # episode ends at death-or-flag with infinite lives, every clear is deathless →
+    # this IS the clear-without-dying reward) without a per-step alive bonus that
+    # would tempt the agent to freeze in place. Ordering by design:
+    #   finish (+FLAG_CLEAR_BONUS, dominant) > rush-and-die (forfeits it) > camp (never earns it).
+    FLAG_CLEAR_BONUS = 300.0
     # Per-level flagpole x (progress denominator for the death penalty). SMB flag
     # positions vary by level; using 1-1's 3161 everywhere miscalibrated the
     # penalty on the other 31 levels. Known values below; DEFAULT_FLAG_X covers
@@ -231,6 +241,15 @@ class MarioReward(gymnasium.Wrapper):
             flag_x = self.FLAG_X_BY_LEVEL.get(lvl, self.DEFAULT_FLAG_X)
             progress_frac = min(self._max_x / flag_x, 1.0)
             reward -= self.DEATH_PENALTY + progress_frac * self.DEATH_PROGRESS_SCALE
+
+        # ── flag clear (the terminal "finish the level" reward) ───────────
+        # Big one-time bonus for grabbing the flag. This is the dominant term:
+        # finishing beats every rush-and-die trajectory (which forfeits it) and
+        # can never be earned by camping. Since the episode ends at death-or-flag
+        # with infinite lives, a clear is always deathless → this rewards
+        # clears-without-dying directly.
+        if bool(info.get("flag_get", False)):
+            reward += self.FLAG_CLEAR_BONUS
 
         # enemy-dodge / jump bonuses (coach-tuned)
         if self._enemy_near(x) and action in (2, 3, 4, 5):

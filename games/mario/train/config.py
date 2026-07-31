@@ -16,15 +16,26 @@ TRAIN_MODE = "pixel_v0"
 N_ENVS = "auto"
 
 # Total training steps (real 1-1 pixel run; CNN needs more steps than the MLP).
-TOTAL_TIMESTEPS = 50_000_000
+TOTAL_TIMESTEPS = 30_000_000
 
 # Fresh pixel run; flip True to resume the newest models/mario_v0_ppo_*_steps.zip.
+# RESTART: False — full fresh run after the spec-1-1 collapse (71%->0%). New reward
+# (flag-clear bonus) + safer hypers below.
 RESUME = False
 
 # IMPALA-CNN: bigger residual conv features extractor (capacity for many levels;
 # the default NatureCNN hit a ceiling and forgot levels). Fresh run when toggled
 # (architecture change — old small-net weights don't transfer).
-USE_IMPALA = True
+USE_IMPALA = False
+
+# --- SPECIALIST (per-level) training: one model per level, warm-started from the
+# previous level's final. Proven approach after generalist attempts all failed. ---
+SPECIALIST = True
+SPECIALIST_LEVEL = "1-1"      # the level this run trains (drives ckpt tag + final path)
+# WARM_START_FROM: load weights from a prior FINAL specialist, then train FRESH on
+# SPECIALIST_LEVEL (resets step counter; NOT a resume). "" = scratch (1-1).
+# For 1-2: "models/specialists/mario_1-1_final.zip", etc.
+WARM_START_FROM = ""
 
 # CnnPolicy: None = SB3 default NatureCNN + MLP head. (NET_ARCH sizes only the
 # MLP head after the conv stack for CnnPolicy.)
@@ -41,12 +52,16 @@ CURRICULUM = False
 
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
-RUN_NAME = "impala-1-1"
+# spec-1-1-v2: clean run after the collapse — flag-clear reward + safer hypers.
+RUN_NAME = "spec-1-1-v2"
 
 # PPO hyperparameters (pixel/CNN)
-LEARNING_RATE = 2.5e-4
+# COLLAPSE FIX: the first spec-1-1 hit 71% then cratered to 0% (clip_fraction ~0.5
+# = a too-large policy update wrecked the policy at its peak). Lower LR + lower
+# entropy make updates gentler and less prone to that blow-up.
+LEARNING_RATE = 1.0e-4        # was 2.5e-4 — smaller, safer steps
 CLIP_RANGE = 0.2
-ENT_COEF = 0.05
+ENT_COEF = 0.02               # was 0.05 — less random exploration late = fewer collapse-inducing swings
 N_STEPS = 1024
 BATCH_SIZE = 1024
 N_EPOCHS = 4

@@ -11,6 +11,7 @@ Usage:
     python train_v0.py               # v0 (World 1-1)
 """
 import argparse
+import collections
 import multiprocessing
 import os
 import time
@@ -37,6 +38,7 @@ def _load_config():
         CLIP_RANGE=0.2, ENT_COEF=0.05, N_STEPS=1024, BATCH_SIZE=1024,
         N_EPOCHS=4, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
         RESUME=False, START_STAGE=None, NET_ARCH=None, RUN_NAME="", RANDOM_STAGES=False, CURRICULUM=False, USE_IMPALA=False,
+        SPECIALIST=False, SPECIALIST_LEVEL=None, WARM_START_FROM="",
     )
     try:
         spec = importlib.util.spec_from_file_location("config", path)
@@ -90,6 +92,79 @@ def get_device():
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+class BestCheckpointCallback(BaseCallback):
+    """Peak-protector: save a snapshot of the model whenever the recent-window
+    clear% sets a new high, into models/best/ — a dir the KeepLastNCheckpoints
+    glob (models/mario_*_ppo_*_steps.zip) never matches, so it can NEVER be
+    pruned. This exists because the first spec-1-1 hit 71% then collapsed to 0%,
+    and the rolling keep-8 pruning had already deleted the 71% checkpoint — the
+    best model was gone. With this, the best-ever model is always on disk.
+
+    Tracks episode outcomes from `dones` + info['flag_get'] over a rolling
+    window (matches the monitor's recent-window clear%). Only saves once past a
+    warmup episode count and above a floor clear%, so early noise doesn't thrash.
+    """
+    def __init__(self, tag, window=400, floor_pct=25.0, min_episodes=200,
+                 save_freq=1, verbose=0):
+        super().__init__(verbose)
+        self._tag = tag
+        self._window = window
+        self._floor = floor_pct
+        self._min_eps = min_episodes
+        self._save_freq = max(save_freq, 1)
+        self._outcomes = collections.deque(maxlen=window)  # 1=clear, 0=death
+        self._prev_flag = {}       # per-env: flag already grabbed this episode?
+        self._episodes = 0
+        self._best_pct = -1.0
+
+    def _save_atomic(self, path):
+        """Save to a temp file then os.replace → the final file is never seen
+        half-written (a mid-write corruption cost us a checkpoint before)."""
+        tmp = f"{path}.tmp"
+        self.model.save(tmp)  # SB3 appends .zip → writes {tmp}.zip
+        os.replace(f"{tmp}.zip", f"{path}.zip")
+
+    def _on_step(self) -> bool:
+        infos = self.locals.get("infos", [])
+        dones = self.locals.get("dones", [])
+        # latch flag_get per env, record outcome at episode end
+        for i, info in enumerate(infos):
+            if info.get("flag_get", False):
+                self._prev_flag[i] = True
+            if i < len(dones) and dones[i]:
+                cleared = bool(self._prev_flag.get(i, False)) or bool(info.get("flag_get", False))
+                self._outcomes.append(1 if cleared else 0)
+                self._episodes += 1
+                self._prev_flag[i] = False
+
+        if self.n_calls % self._save_freq != 0:
+            return True
+        if self._episodes < self._min_eps or not self._outcomes:
+            return True
+        pct = 100.0 * sum(self._outcomes) / len(self._outcomes)
+        if pct >= self._floor and pct > self._best_pct:
+            self._best_pct = pct
+            try:
+                # 1) primary peak snapshot in models/best/ (never pruned)
+                os.makedirs("models/best", exist_ok=True)
+                path = f"models/best/mario_{self._tag}_best"
+                self._save_atomic(path)
+                with open(f"{path}.pct", "w") as f:
+                    f.write(f"{pct:.1f}\n")
+                # 2) mirror into models/specialists/ (deliverables dir) as a
+                # second fallback that survives even a full models/best/ wipe.
+                os.makedirs("models/specialists", exist_ok=True)
+                fb = f"models/specialists/mario_{self._tag}_best_fallback"
+                self._save_atomic(fb)
+                with open(f"{fb}.pct", "w") as f:
+                    f.write(f"{pct:.1f}\n")
+                print(f"[best-ckpt] NEW BEST {pct:.1f}% recent-clear → {path}.zip "
+                      f"(+ specialists fallback) — collapse-proof")
+            except Exception as e:
+                print(f"[best-ckpt] save skipped: {e}")
+        return True
 
 
 class KeepLastNCheckpoints(BaseCallback):
@@ -363,6 +438,13 @@ def main(version="v0"):
                        random_stages=CFG.get("RANDOM_STAGES", False),
                        curriculum_stages=_curric)
 
+    # Specialist mode: level-tagged checkpoints so per-level models don't collide,
+    # and per-level pruning. ckpt_tag fills the {version} slot every ckpt path/glob
+    # already uses, so isolation is a single substitution.
+    spec = bool(CFG.get("SPECIALIST"))
+    level = (CFG.get("SPECIALIST_LEVEL") or CFG.get("START_STAGE") or "1-1")
+    ckpt_tag = f"{version}_{level}" if spec else version
+
     _ckpt_freq = max(CFG["CHECKPOINT_FREQ"] // N_ENVS, 1)
     callbacks = [
         CheckpointCallback(
@@ -370,22 +452,42 @@ def main(version="v0"):
             # checkpoints land every CHECKPOINT_FREQ *timesteps* as intended.
             save_freq=_ckpt_freq,
             save_path="models/",
-            name_prefix=f"mario_{version}_ppo",
+            name_prefix=f"mario_{ckpt_tag}_ppo",
         ),
-        KeepLastNCheckpoints(version, keep=8, save_freq=_ckpt_freq),
+        KeepLastNCheckpoints(ckpt_tag, keep=8, save_freq=_ckpt_freq),
+        BestCheckpointCallback(ckpt_tag, window=400, floor_pct=25.0,
+                               min_episodes=200, save_freq=_ckpt_freq),
         stats_cb,
     ]
 
-    # Model priority: resume own checkpoint > tsilva pretrained fine-tune > scratch.
+    # Model priority: RESUME (same-level continue) > WARM_START (specialist, load
+    # weights from prior level, fresh counter) > pretrained fine-tune > scratch.
     resume_path, resume_steps = (None, 0)
     if CFG.get("RESUME"):
-        resume_path, resume_steps = _find_latest_checkpoint(version)
+        resume_path, resume_steps = _find_latest_checkpoint(ckpt_tag)
+    warm_from = (CFG.get("WARM_START_FROM") or "").strip()
 
     if resume_path:
         print(f"Resuming from {resume_path} (@{resume_steps} steps) with N_ENVS={N_ENVS}")
         model = PPO.load(resume_path, env=env, device=device,
                          tensorboard_log="./tensorboard/")
         remaining = max(CFG["TOTAL_TIMESTEPS"] - resume_steps, 0)
+    elif spec and warm_from and os.path.exists(warm_from):
+        # Warm-start this level's specialist from the previous level's final model:
+        # load weights, but train FRESH on this level (reset counter, normal hypers).
+        print(f"[specialist] Warm-starting {level} from {warm_from} "
+              f"(weights only; fresh step counter)")
+        model = PPO.load(
+            warm_from, env=env, device=device,
+            learning_rate=CFG["LEARNING_RATE"], ent_coef=CFG["ENT_COEF"],
+            clip_range=CFG["CLIP_RANGE"], tensorboard_log="./tensorboard/",
+        )
+        model.set_env(env)
+        remaining = CFG["TOTAL_TIMESTEPS"]
+    elif spec and warm_from and not os.path.exists(warm_from):
+        raise FileNotFoundError(
+            f"[specialist] WARM_START_FROM='{warm_from}' not found — refusing to "
+            f"silently cold-start {level}. Fix the path or set WARM_START_FROM=''.")
     elif not CFG.get("RESUME") and os.path.exists(PRETRAINED_PATH):
         # Optional accelerator: fine-tune the tsilva pretrained 1-1 checkpoint.
         print(f"Fine-tuning from pretrained checkpoint: {PRETRAINED_PATH}")
@@ -431,9 +533,15 @@ def main(version="v0"):
     print("  TensorBoard:  http://localhost:6006\n")
 
     model.learn(total_timesteps=remaining, callback=callbacks,
-                reset_num_timesteps=not resume_path)
-    model.save(f"models/mario_{version}_final")
-    print(f"\nDone. Model saved to models/mario_{version}_final.zip")
+                reset_num_timesteps=not bool(resume_path))
+    if spec:
+        os.makedirs("models/specialists", exist_ok=True)
+        final_path = f"models/specialists/mario_{level}_final"
+        model.save(final_path)
+        print(f"\n[specialist] {level} FINAL saved to {final_path}.zip")
+    else:
+        model.save(f"models/mario_{version}_final")
+        print(f"\nDone. Model saved to models/mario_{version}_final.zip")
     env.close()
     if getattr(stats_cb, "_db", None) is not None:
         try:

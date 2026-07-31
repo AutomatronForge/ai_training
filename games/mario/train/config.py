@@ -19,9 +19,11 @@ N_ENVS = "auto"
 TOTAL_TIMESTEPS = 30_000_000
 
 # Fresh pixel run; flip True to resume the newest models/mario_v0_ppo_*_steps.zip.
-# RESTART: False — full fresh run after the spec-1-1 collapse (71%->0%). New reward
-# (flag-clear bonus) + safer hypers below.
-RESUME = False
+# RESTART: was False for the fresh spec-1-1-v2 launch. Flipped True 2026-08-01
+# mid-run so any restart (crash recovery, or promotion) RESUMES from the newest
+# valid checkpoint + picks up the fixed peak-protector — instead of wiping the
+# in-progress climb by starting from scratch.
+RESUME = True
 
 # IMPALA-CNN: bigger residual conv features extractor (capacity for many levels;
 # the default NatureCNN hit a ceiling and forgot levels). Fresh run when toggled

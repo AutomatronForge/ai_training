@@ -27,10 +27,10 @@
         "current": {
           "selected": true,
           "text": [
-            "run_20260731_023849"
+            "alllevels"
           ],
           "value": [
-            "run_20260731_023849"
+            "alllevels"
           ]
         },
         "refresh": 2,
@@ -49,11 +49,9 @@
         "includeAll": true,
         "current": {
           "selected": true,
-          "text": [
-            "1-1"
-          ],
+          "text": "All",
           "value": [
-            "1-1"
+            "$__all"
           ]
         },
         "refresh": 2,
@@ -68,7 +66,7 @@
   },
   "timepicker": {},
   "timezone": "Asia/Manila",
-  "title": "Mario 1-1 Training",
+  "title": "Mario Training (all levels)",
   "uid": "mario-1-1",
   "version": 1,
   "panels": [
@@ -889,6 +887,264 @@
           "queryType": "table",
           "rawQueryText": "WITH ordered AS (SELECT env_idx, id, outcome, ROW_NUMBER() OVER (PARTITION BY env_idx ORDER BY id) - ROW_NUMBER() OVER (PARTITION BY env_idx, outcome ORDER BY id) AS grp FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})), runs AS (SELECT env_idx, outcome, COUNT(*) AS run_len, MAX(id) AS last_id FROM ordered GROUP BY env_idx, outcome, grp) SELECT CAST(env_idx AS TEXT) AS env, COALESCE(SUM(CASE WHEN outcome='clear' AND last_id=(SELECT MAX(id) FROM ordered o2 WHERE o2.env_idx=runs.env_idx) THEN run_len ELSE 0 END),0) AS current_streak FROM runs GROUP BY env_idx ORDER BY env_idx",
           "queryText": "WITH ordered AS (SELECT env_idx, id, outcome, ROW_NUMBER() OVER (PARTITION BY env_idx ORDER BY id) - ROW_NUMBER() OVER (PARTITION BY env_idx, outcome ORDER BY id) AS grp FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})), runs AS (SELECT env_idx, outcome, COUNT(*) AS run_len, MAX(id) AS last_id FROM ordered GROUP BY env_idx, outcome, grp) SELECT CAST(env_idx AS TEXT) AS env, COALESCE(SUM(CASE WHEN outcome='clear' AND last_id=(SELECT MAX(id) FROM ordered o2 WHERE o2.env_idx=runs.env_idx) THEN run_len ELSE 0 END),0) AS current_streak FROM runs GROUP BY env_idx ORDER BY env_idx",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Levels cleared (>=1 clear)",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d03b3b",
+                "value": null
+              },
+              {
+                "color": "#fab219",
+                "value": 8
+              },
+              {
+                "color": "#0ca30c",
+                "value": 24
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [],
+          "rawQueryText": "SELECT COUNT(*) AS value FROM (SELECT level FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level HAVING SUM(outcome='clear')>0)",
+          "queryText": "SELECT COUNT(*) AS value FROM (SELECT level FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level HAVING SUM(outcome='clear')>0)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Levels >=40% clear",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 53
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [],
+          "rawQueryText": "SELECT COUNT(*) AS value FROM (SELECT level FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level HAVING 100.0*SUM(outcome='clear')/COUNT(*)>=40)",
+          "queryText": "SELECT COUNT(*) AS value FROM (SELECT level FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level HAVING 100.0*SUM(outcome='clear')/COUNT(*)>=40)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Levels attempted (of 32)",
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 53
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#898781"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [],
+          "rawQueryText": "SELECT COUNT(DISTINCT level) AS value FROM episodes WHERE run_name IN (${run:sqlstring})",
+          "queryText": "SELECT COUNT(DISTINCT level) AS value FROM episodes WHERE run_name IN (${run:sqlstring})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "barchart",
+      "title": "Clear % by level (all 32)",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "continuous-RdYlGr"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 85
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": -45,
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [],
+          "rawQueryText": "SELECT level, ROUND(100.0*SUM(outcome='clear')/COUNT(*),1) AS clear_pct FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level ORDER BY level",
+          "queryText": "SELECT level, ROUND(100.0*SUM(outcome='clear')/COUNT(*),1) AS clear_pct FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level ORDER BY level",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "table",
+      "title": "Per-level detail",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clear_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-RdYlGr"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "clear_pct",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [],
+          "rawQueryText": "SELECT level, COUNT(*) AS attempts, SUM(outcome='clear') AS clears, ROUND(100.0*SUM(outcome='clear')/COUNT(*),1) AS clear_pct, MAX(max_x) AS best_x FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level ORDER BY clear_pct DESC",
+          "queryText": "SELECT level, COUNT(*) AS attempts, SUM(outcome='clear') AS clears, ROUND(100.0*SUM(outcome='clear')/COUNT(*),1) AS clear_pct, MAX(max_x) AS best_x FROM episodes WHERE run_name IN (${run:sqlstring}) GROUP BY level ORDER BY clear_pct DESC",
           "refId": "A"
         }
       ]

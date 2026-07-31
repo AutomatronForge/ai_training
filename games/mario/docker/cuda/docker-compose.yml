@@ -35,6 +35,7 @@ services:
       - ../../train/ollama_coach.py:/app/ollama_coach.py
       - ../../train/viewer.py:/app/viewer.py
       - ../../train/metrics_db.py:/app/metrics_db.py
+      - ../../train/impala_cnn.py:/app/impala_cnn.py
       - ../../train/download_pretrained.py:/app/download_pretrained.py
       - ./tensorboard:/app/tensorboard
       - ./metrics:/app/metrics

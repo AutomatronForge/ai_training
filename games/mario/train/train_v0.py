@@ -36,7 +36,7 @@ def _load_config():
         N_ENVS=8, TOTAL_TIMESTEPS=5_000_000, LEARNING_RATE=2.5e-4,
         CLIP_RANGE=0.2, ENT_COEF=0.05, N_STEPS=1024, BATCH_SIZE=1024,
         N_EPOCHS=4, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
-        RESUME=False, START_STAGE=None, NET_ARCH=None, RUN_NAME="", RANDOM_STAGES=False,
+        RESUME=False, START_STAGE=None, NET_ARCH=None, RUN_NAME="", RANDOM_STAGES=False, CURRICULUM=False, USE_IMPALA=False,
     )
     try:
         spec = importlib.util.spec_from_file_location("config", path)
@@ -90,6 +90,35 @@ def get_device():
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+class KeepLastNCheckpoints(BaseCallback):
+    """Prune models/ to the newest N checkpoints after each save, so the dir
+    can't balloon (610 files / 13G once filled the disk and corrupted a
+    mid-write checkpoint). Runs cheaply on the checkpoint cadence."""
+    def __init__(self, version, keep=8, save_freq=1, verbose=0):
+        super().__init__(verbose)
+        self._version = version
+        self._keep = keep
+        self._save_freq = max(save_freq, 1)
+
+    def _on_step(self) -> bool:
+        # align to the checkpoint save cadence (rollout steps, per-env)
+        if self.n_calls % self._save_freq != 0:
+            return True
+        try:
+            import glob
+            ckpts = sorted(
+                glob.glob(f"models/mario_{self._version}_ppo_*_steps.zip"),
+                key=os.path.getmtime, reverse=True)
+            for old in ckpts[self._keep:]:
+                try:
+                    os.remove(old)
+                except OSError:
+                    pass
+        except Exception as e:
+            print(f"[ckpt-prune] skipped: {e}")
+        return True
 
 
 class StatsCallback(BaseCallback):
@@ -328,17 +357,22 @@ def main(version="v0"):
     ollama_coach.start(stats_fn=stats_cb.get_stats, shared_weights=shared_weights,
                        interval=CFG["OLLAMA_INTERVAL"])
 
+    from env_utils import CURRICULUM_STAGES
+    _curric = CURRICULUM_STAGES if CFG.get("CURRICULUM", False) else None
     env = make_vec_env(n_envs=N_ENVS, version=version, stage=CFG.get("START_STAGE"),
-                       random_stages=CFG.get("RANDOM_STAGES", False))
+                       random_stages=CFG.get("RANDOM_STAGES", False),
+                       curriculum_stages=_curric)
 
+    _ckpt_freq = max(CFG["CHECKPOINT_FREQ"] // N_ENVS, 1)
     callbacks = [
         CheckpointCallback(
             # save_freq counts rollout steps (per-env) — divide by N_ENVS so
             # checkpoints land every CHECKPOINT_FREQ *timesteps* as intended.
-            save_freq=max(CFG["CHECKPOINT_FREQ"] // N_ENVS, 1),
+            save_freq=_ckpt_freq,
             save_path="models/",
             name_prefix=f"mario_{version}_ppo",
         ),
+        KeepLastNCheckpoints(version, keep=8, save_freq=_ckpt_freq),
         stats_cb,
     ]
 
@@ -367,7 +401,17 @@ def main(version="v0"):
             # (pretrained absent — train from scratch; download() left available if wanted)
             pass
         policy_kwargs = None
-        if CFG.get("NET_ARCH"):
+        if CFG.get("USE_IMPALA"):
+            # Bigger IMPALA-CNN features extractor — capacity for many levels
+            # (the default NatureCNN hit a ceiling and forgot levels).
+            from impala_cnn import IMPALACNN
+            policy_kwargs = dict(
+                features_extractor_class=IMPALACNN,
+                features_extractor_kwargs=dict(features_dim=256),
+                net_arch=[256],
+            )
+            print("[train_v0] Using IMPALA-CNN features extractor")
+        elif CFG.get("NET_ARCH"):
             # For CnnPolicy, net_arch sizes the MLP head after the CNN extractor.
             policy_kwargs = dict(net_arch=list(CFG["NET_ARCH"]))
         model = PPO(

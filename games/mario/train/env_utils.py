@@ -17,6 +17,17 @@ _shared_weights = None
 # All 32 SMB levels (world-stage), for random-stage / all-levels training.
 ALL_STAGES = [f"{w}-{s}" for w in range(1, 9) for s in range(1, 5)]
 
+# Curriculum-weighted stage list (tiled across the env vector). Heavy on the
+# known/easy early levels so the policy RETAINS them (the cold uniform all-32
+# mix caused catastrophic forgetting of the mastered 1-1 on this small CNN),
+# with a lighter tail of harder levels for gradual expansion. Repeats = weight.
+# Shift toward harder levels over time as early ones re-stabilize.
+CURRICULUM_STAGES = (
+    ["1-1"] * 6 + ["1-2"] * 4 + ["1-3"] * 3 + ["1-4"] * 2 +   # World 1 (heavy: recover+hold)
+    ["2-1"] * 3 + ["2-2"] * 2 + ["2-3"] * 2 + ["2-4"] * 1 +   # World 2 (moderate)
+    ["3-1", "3-2", "4-1", "4-2", "5-1", "6-1", "7-1", "8-1"]  # Worlds 3-8 (light: expand)
+)
+
 
 def init_shared_weights(manager, default_weights):
     global _shared_weights
@@ -296,15 +307,23 @@ def make_mario_env(version="v3", stage=None, expose_rgb=False):
     return env
 
 
-def make_vec_env(n_envs=8, version="v3", stage=None, random_stages=False):
+def make_vec_env(n_envs=8, version="v3", stage=None, random_stages=False,
+                 curriculum_stages=None):
     import functools
     # Only env 0 can expose its raw RGB frame (and only when the viewer's color
     # toggle is on) — the one env the viewer shows. Keeps the color cost off the
     # other 30 envs entirely.
-    # random_stages: spread the 32 levels across the env vector (each env pinned
-    # to a different level, round-robin) so every gradient step sees a mixture of
-    # levels — the anti-forgetting cure for a generalist across all levels.
-    if random_stages:
+    # Stage assignment across the env vector, in priority order:
+    #  - curriculum_stages: an explicit WEIGHTED list of levels (repeats allowed)
+    #    tiled across the vector. Bias it toward known/easy levels so the policy
+    #    RETAINS them (avoids the catastrophic forgetting seen with a cold uniform
+    #    all-32 mix on this small CNN) while a minority of envs expand to harder
+    #    levels. Shift the list toward harder levels over time.
+    #  - random_stages: uniform spread of all 32 (the aggressive mix — forgets).
+    #  - else: every env on `stage` (single-level).
+    if curriculum_stages:
+        stages = [curriculum_stages[i % len(curriculum_stages)] for i in range(n_envs)]
+    elif random_stages:
         stages = [ALL_STAGES[i % len(ALL_STAGES)] for i in range(n_envs)]
     else:
         stages = [stage] * n_envs

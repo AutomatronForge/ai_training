@@ -34,8 +34,10 @@ services:
       - ../../train/env_utils_ram.py:/app/env_utils_ram.py
       - ../../train/ollama_coach.py:/app/ollama_coach.py
       - ../../train/viewer.py:/app/viewer.py
+      - ../../train/metrics_db.py:/app/metrics_db.py
       - ../../train/download_pretrained.py:/app/download_pretrained.py
       - ./tensorboard:/app/tensorboard
+      - ./metrics:/app/metrics
     ports:
       - "8080:8080"
       - "6006:6006"
@@ -44,5 +46,27 @@ services:
       bash -c "tensorboard --logdir /app/tensorboard --host 0.0.0.0 --port 6006 &
                python entrypoint.py"
 
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - mario-train
+    environment:
+      - GF_INSTALL_PLUGINS=frser-sqlite-datasource
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_DATE_FORMATS_DEFAULT_TIMEZONE=Asia/Manila
+      - TZ=Asia/Manila
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./metrics:/app/metrics
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+
 volumes:
   ollama-models:
+  grafana-data:

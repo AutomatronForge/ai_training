@@ -1,0 +1,897 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "mario"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "run",
+        "label": "Run",
+        "type": "query",
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "MarioSQLite"
+        },
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "run_20260731_023849"
+          ],
+          "value": [
+            "run_20260731_023849"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "query": "SELECT DISTINCT run_name FROM snapshots ORDER BY run_name DESC"
+      },
+      {
+        "name": "level",
+        "label": "Level",
+        "type": "query",
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "MarioSQLite"
+        },
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "1-1"
+          ],
+          "value": [
+            "1-1"
+          ]
+        },
+        "refresh": 2,
+        "sort": 1,
+        "query": "SELECT DISTINCT level FROM episodes ORDER BY level"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "Asia/Manila",
+  "title": "Mario 1-1 Training",
+  "uid": "mario-1-1",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Latest clear %",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d03b3b",
+                "value": null
+              },
+              {
+                "color": "#fab219",
+                "value": 25
+              },
+              {
+                "color": "#0ca30c",
+                "value": 60
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT clear_pct*100 AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1",
+          "refId": "A",
+          "rawQueryText": "SELECT clear_pct*100 AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Latest deathless rate (of clears)",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT deathless_rate*100 AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1",
+          "refId": "A",
+          "rawQueryText": "SELECT deathless_rate*100 AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Max x reached",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#199e70"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT max_x_reached AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1",
+          "refId": "A",
+          "rawQueryText": "SELECT max_x_reached AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "FPS",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#c98500"
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT fps AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1",
+          "refId": "A",
+          "rawQueryText": "SELECT fps AS value FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts DESC LIMIT 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Clear % & deathless % over time",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clear_pct"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "deathless_pct"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'unixepoch') AS time, clear_pct*100 AS clear_pct, deathless_rate*100 AS deathless_pct FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts",
+          "refId": "A",
+          "rawQueryText": "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'unixepoch') AS time, clear_pct*100 AS clear_pct, deathless_rate*100 AS deathless_pct FROM snapshots WHERE run_name IN (${run:sqlstring}) ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Coach reward weights over time",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "progress_bonus"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "velocity_bonus"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stuck_penalty"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "jump_bonus"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'unixepoch') AS time, progress_bonus, velocity_bonus, stuck_penalty, jump_bonus FROM coach_weights WHERE run_name IN (${run:sqlstring}) ORDER BY ts",
+          "refId": "A",
+          "rawQueryText": "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', ts, 'unixepoch') AS time, progress_bonus, velocity_bonus, stuck_penalty, jump_bonus FROM coach_weights WHERE run_name IN (${run:sqlstring}) ORDER BY ts"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "barchart",
+      "title": "Per-env clear % (all attempts)",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 90
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0,
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT CAST(env_idx AS TEXT) AS env, 100.0*SUM(outcome='clear')/COUNT(*) AS clear_pct FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY env_idx ORDER BY env_idx",
+          "refId": "A",
+          "rawQueryText": "SELECT CAST(env_idx AS TEXT) AS env, 100.0*SUM(outcome='clear')/COUNT(*) AS clear_pct FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY env_idx ORDER BY env_idx"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "barchart",
+      "title": "Death locations (x_pos bins, flag at ~3161)",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#d03b3b"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 90
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": -45,
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT CAST((death_x/100)*100 AS TEXT) AS x_bin, COUNT(*) AS deaths FROM episodes WHERE outcome='death' AND run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY death_x/100 ORDER BY death_x/100",
+          "refId": "A",
+          "rawQueryText": "SELECT CAST((death_x/100)*100 AS TEXT) AS x_bin, COUNT(*) AS deaths FROM episodes WHERE outcome='death' AND run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY death_x/100 ORDER BY death_x/100"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Cumulative: enemy kills / powerups / 1-ups / coins",
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#199e70"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "coins"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#c98500"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "oneups"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3987e5"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "orientation": "horizontal",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT SUM(kills) AS kills, SUM(powerups) AS powerups, SUM(oneups) AS oneups, SUM(coins) AS coins FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})",
+          "refId": "A",
+          "rawQueryText": "SELECT SUM(kills) AS kills, SUM(powerups) AS powerups, SUM(oneups) AS oneups, SUM(coins) AS coins FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Kills & powerups per episode (avg over snapshots window)",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_kills"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#199e70"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "avg_powerups"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#d95926"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "timeColumns": [
+            "time"
+          ],
+          "queryText": "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', CAST(ts/300 AS INT)*300, 'unixepoch') AS time, AVG(kills) AS avg_kills, AVG(powerups) AS avg_powerups FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY CAST(ts/300 AS INT) ORDER BY time",
+          "refId": "A",
+          "rawQueryText": "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', CAST(ts/300 AS INT)*300, 'unixepoch') AS time, AVG(kills) AS avg_kills, AVG(powerups) AS avg_powerups FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY CAST(ts/300 AS INT) ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "barchart",
+      "title": "Deaths per env",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#d03b3b"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 90
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0,
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT CAST(env_idx AS TEXT) AS env, SUM(outcome='death') AS deaths FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY env_idx ORDER BY env_idx",
+          "refId": "A",
+          "rawQueryText": "SELECT CAST(env_idx AS TEXT) AS env, SUM(outcome='death') AS deaths FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY env_idx ORDER BY env_idx"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Per-env detail",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "clear_pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "env",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "queryText": "SELECT env_idx AS env, COUNT(*) AS episodes, SUM(outcome='clear') AS clears, SUM(outcome='death') AS deaths, ROUND(100.0*SUM(outcome='clear')/COUNT(*),1) AS clear_pct, ROUND(AVG(max_x),0) AS avg_max_x, ROUND(AVG(CASE WHEN outcome='death' THEN death_x END),0) AS avg_death_x FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY env_idx ORDER BY env_idx",
+          "refId": "A",
+          "rawQueryText": "SELECT env_idx AS env, COUNT(*) AS episodes, SUM(outcome='clear') AS clears, SUM(outcome='death') AS deaths, ROUND(100.0*SUM(outcome='clear')/COUNT(*),1) AS clear_pct, ROUND(AVG(max_x),0) AS avg_max_x, ROUND(AVG(CASE WHEN outcome='death' THEN death_x END),0) AS avg_death_x FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring}) GROUP BY env_idx ORDER BY env_idx"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Longest clear streak per env (consecutive clears, no death)",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#199e70"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 90
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0,
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "rawQueryText": "WITH ordered AS (SELECT env_idx, id, outcome, ROW_NUMBER() OVER (PARTITION BY env_idx ORDER BY id) - ROW_NUMBER() OVER (PARTITION BY env_idx, outcome ORDER BY id) AS grp FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})), runs AS (SELECT env_idx, outcome, COUNT(*) AS run_len, MAX(id) AS last_id FROM ordered GROUP BY env_idx, outcome, grp) SELECT CAST(env_idx AS TEXT) AS env, COALESCE(MAX(CASE WHEN outcome='clear' THEN run_len END),0) AS longest_streak FROM runs GROUP BY env_idx ORDER BY env_idx",
+          "queryText": "WITH ordered AS (SELECT env_idx, id, outcome, ROW_NUMBER() OVER (PARTITION BY env_idx ORDER BY id) - ROW_NUMBER() OVER (PARTITION BY env_idx, outcome ORDER BY id) AS grp FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})), runs AS (SELECT env_idx, outcome, COUNT(*) AS run_len, MAX(id) AS last_id FROM ordered GROUP BY env_idx, outcome, grp) SELECT CAST(env_idx AS TEXT) AS env, COALESCE(MAX(CASE WHEN outcome='clear' THEN run_len END),0) AS longest_streak FROM runs GROUP BY env_idx ORDER BY env_idx",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "barchart",
+      "title": "Current clear streak per env",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "MarioSQLite"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#3987e5"
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 90
+          }
+        }
+      },
+      "options": {
+        "orientation": "vertical",
+        "xTickLabelRotation": 0,
+        "showValue": "auto",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "queryType": "table",
+          "rawQueryText": "WITH ordered AS (SELECT env_idx, id, outcome, ROW_NUMBER() OVER (PARTITION BY env_idx ORDER BY id) - ROW_NUMBER() OVER (PARTITION BY env_idx, outcome ORDER BY id) AS grp FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})), runs AS (SELECT env_idx, outcome, COUNT(*) AS run_len, MAX(id) AS last_id FROM ordered GROUP BY env_idx, outcome, grp) SELECT CAST(env_idx AS TEXT) AS env, COALESCE(SUM(CASE WHEN outcome='clear' AND last_id=(SELECT MAX(id) FROM ordered o2 WHERE o2.env_idx=runs.env_idx) THEN run_len ELSE 0 END),0) AS current_streak FROM runs GROUP BY env_idx ORDER BY env_idx",
+          "queryText": "WITH ordered AS (SELECT env_idx, id, outcome, ROW_NUMBER() OVER (PARTITION BY env_idx ORDER BY id) - ROW_NUMBER() OVER (PARTITION BY env_idx, outcome ORDER BY id) AS grp FROM episodes WHERE run_name IN (${run:sqlstring}) AND level IN (${level:sqlstring})), runs AS (SELECT env_idx, outcome, COUNT(*) AS run_len, MAX(id) AS last_id FROM ordered GROUP BY env_idx, outcome, grp) SELECT CAST(env_idx AS TEXT) AS env, COALESCE(SUM(CASE WHEN outcome='clear' AND last_id=(SELECT MAX(id) FROM ordered o2 WHERE o2.env_idx=runs.env_idx) THEN run_len ELSE 0 END),0) AS current_streak FROM runs GROUP BY env_idx ORDER BY env_idx",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

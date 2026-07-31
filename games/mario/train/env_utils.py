@@ -91,13 +91,16 @@ class MarioReward(gymnasium.Wrapper):
     POWERDOWN_PEN   = 10.0    # lost a power-up (hit while big) — softer than a death
     KILL_BONUS      = 5.0     # stomped/killed an enemy (inferred from score jump)
     FIREBALL_USE    = 0.5     # fired while in fireball state (uses the power-up)
-    DEATH_PENALTY   = 25.0    # lost a life
+    DEATH_PENALTY   = 25.0    # base penalty for dying (episode ends w/o flag)
+    DEATH_PROGRESS_SCALE = 25.0  # extra penalty scaled by fraction of level reached
+    FLAG_X          = 3161    # x_pos of the 1-1 flagpole (progress denominator)
     STATUS_RANK     = {"small": 0, "tall": 1, "fireball": 2}
     KILL_SCORES     = {100, 200, 400, 500, 800, 1000, 2000, 4000, 8000}
     FIRE_ACTIONS    = {3, 4}  # SIMPLE_MOVEMENT run/B actions throw fireballs when fiery
 
-    def __init__(self, env):
+    def __init__(self, env, expose_rgb=False):
         super().__init__(env)
+        self._expose_rgb = expose_rgb
         self._max_x = 0
         self._prev_x = 0
         self._stuck_steps = 0
@@ -105,6 +108,10 @@ class MarioReward(gymnasium.Wrapper):
         self._prev_coins = 0
         self._prev_status = "small"
         self._prev_life = 2
+        # per-episode event counters (surfaced via info for the metrics store)
+        self._ep_kills = 0
+        self._ep_powerups = 0
+        self._ep_oneups = 0
 
     def _w(self, key, default):
         return get_shared_weights().get(key, default)
@@ -117,6 +124,9 @@ class MarioReward(gymnasium.Wrapper):
         self._prev_coins = 0
         self._prev_status = "small"
         self._prev_life = 2
+        self._ep_kills = 0
+        self._ep_powerups = 0
+        self._ep_oneups = 0
         return self.env.reset(**kwargs)
 
     def step(self, action):
@@ -159,6 +169,7 @@ class MarioReward(gymnasium.Wrapper):
             # is nearby is very likely a stomp/fireball kill
             if d_score in self.KILL_SCORES and self._enemy_near(x):
                 reward += self.KILL_BONUS
+                self._ep_kills += 1
 
         # ── power-ups: getting, using, and losing ─────────────────────────
         status = info.get("status", "small")
@@ -166,15 +177,29 @@ class MarioReward(gymnasium.Wrapper):
         prev_rank = self.STATUS_RANK.get(self._prev_status, 0)
         if cur_rank > prev_rank:
             reward += self.POWERUP_BONUS
+            self._ep_powerups += 1
         elif cur_rank < prev_rank:
             reward -= self.POWERDOWN_PEN
         if status == "fireball" and action in self.FIRE_ACTIONS:
             reward += self.FIREBALL_USE
 
-        # ── death penalty (encourages no-death runs) ──────────────────────
-        life = info.get("life", 2)
-        if life < self._prev_life:
-            reward -= self.DEATH_PENALTY
+        # 1-up: life increases (rare/absent in single-stage envs where life is
+        # stuck at 2, but correct for the full-game path). Tracked per episode.
+        life_now = info.get("life", 2)
+        if life_now > self._prev_life:
+            self._ep_oneups += 1
+
+        # ── death penalty (progress-scaled) ───────────────────────────────
+        # This ROM has INFINITE lives: `life` is stuck at 2 and never
+        # decrements, so the old `life < prev_life` check NEVER fired and death
+        # was effectively free. A death here = the episode ends WITHOUT grabbing
+        # the flag (Mario is reset to the start). Penalize that, scaled by how
+        # much progress was thrown away — dying near the flag costs the most,
+        # so the agent learns not to waste a good run.
+        died = (terminated or truncated) and not bool(info.get("flag_get", False))
+        if died:
+            progress_frac = min(self._max_x / self.FLAG_X, 1.0)
+            reward -= self.DEATH_PENALTY + progress_frac * self.DEATH_PROGRESS_SCALE
 
         # enemy-dodge / jump bonuses (coach-tuned)
         if self._enemy_near(x) and action in (2, 3, 4, 5):
@@ -186,7 +211,20 @@ class MarioReward(gymnasium.Wrapper):
         self._prev_score = score
         self._prev_coins = coins
         self._prev_status = status
-        self._prev_life = life
+        self._prev_life = life_now
+        # Surface per-episode event counters + current coins for the metrics
+        # store (read by the callback at the episode boundary).
+        info["ep_kills"] = self._ep_kills
+        info["ep_powerups"] = self._ep_powerups
+        info["ep_oneups"] = self._ep_oneups
+        # Full-color viewer (opt-in): env 0 attaches its raw NES frame ONLY when
+        # the shared color flag is on (toggled from the viewer). Off by default
+        # so there's zero per-step cost during normal training.
+        if self._expose_rgb and get_shared_weights().get("_color", 0):
+            try:
+                info["rgb"] = self.env.unwrapped.screen
+            except Exception:
+                pass
         return obs, reward, terminated, truncated, info
 
     def _enemy_near(self, x, window=80):
@@ -225,7 +263,7 @@ class MarioReward(gymnasium.Wrapper):
         return wall, pit
 
 
-def make_mario_env(version="v3", stage=None):
+def make_mario_env(version="v3", stage=None, expose_rgb=False):
     # stage like "1-2" -> train directly on that stage (SuperMarioBros-1-2-v0),
     # else the plain versioned env (v0 = start at 1-1 and auto-advance; v3 = random).
     env_id = f"SuperMarioBros-{stage}-{version}" if stage else f"SuperMarioBros-{version}"
@@ -233,15 +271,22 @@ def make_mario_env(version="v3", stage=None):
     env = JoypadSpace(env, SIMPLE_MOVEMENT)
     env = GymV21CompatibilityV0(env=env)
     env = SkipFrame(env, skip=2)
-    env = MarioReward(env)
+    env = MarioReward(env, expose_rgb=expose_rgb)
     env = GrayScaleResize(env, shape=84)
     return env
 
 
 def make_vec_env(n_envs=8, version="v3", stage=None):
     import functools
-    env_fn = functools.partial(make_mario_env, version=version, stage=stage)
-    env = SubprocVecEnv([env_fn] * n_envs)
+    # Only env 0 can expose its raw RGB frame (and only when the viewer's color
+    # toggle is on) — the one env the viewer shows. Keeps the color cost off the
+    # other 30 envs entirely.
+    env_fns = [
+        functools.partial(make_mario_env, version=version, stage=stage,
+                          expose_rgb=(i == 0))
+        for i in range(n_envs)
+    ]
+    env = SubprocVecEnv(env_fns)
     env = VecFrameStack(env, n_stack=4)
     env = VecTransposeImage(env)
     return env

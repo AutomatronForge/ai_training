@@ -1,0 +1,9 @@
+apiVersion: 1
+
+datasources:
+  - name: MarioSQLite
+    type: frser-sqlite-datasource
+    access: proxy
+    isDefault: true
+    jsonData:
+      path: /app/metrics/mario.db

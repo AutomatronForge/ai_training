@@ -21,3 +21,7 @@ tensorboard/
 .claude/
 docs/
 openspec/
+
+# Runtime metrics DB + monitor state (not source)
+games/mario/docker/cuda/metrics/
+.monitor/

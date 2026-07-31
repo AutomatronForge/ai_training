@@ -16,17 +16,21 @@ TRAIN_MODE = "pixel_v0"
 N_ENVS = "auto"
 
 # Total training steps (real 1-1 pixel run; CNN needs more steps than the MLP).
-TOTAL_TIMESTEPS = 10_000_000
+TOTAL_TIMESTEPS = 50_000_000
 
 # Fresh pixel run; flip True to resume the newest models/mario_v0_ppo_*_steps.zip.
-RESUME = False
+RESUME = True
 
 # CnnPolicy: None = SB3 default NatureCNN + MLP head. (NET_ARCH sizes only the
 # MLP head after the conv stack for CnnPolicy.)
 NET_ARCH = None
 
 # Curriculum: None = start at 1-1 (auto-advance). Set e.g. "1-2" to train a stage directly.
-START_STAGE = None
+START_STAGE = "1-1"
+
+# Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
+# Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
+RUN_NAME = ""
 
 # PPO hyperparameters (pixel/CNN)
 LEARNING_RATE = 2.5e-4

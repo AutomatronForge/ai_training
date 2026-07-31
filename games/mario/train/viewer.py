@@ -1,7 +1,7 @@
 import threading
 import time
 import numpy as np
-from flask import Flask, Response
+from flask import Flask, Response, redirect
 
 app = Flask(__name__)
 
@@ -9,6 +9,7 @@ _frame = None
 _lock = threading.Lock()
 _n_envs = 20
 _mode = "rgb"  # "rgb" = true color, "viridis" = false color from grayscale
+_shared = None  # Manager dict shared with envs; holds "_color" (0/1) toggle
 
 
 def update_frame(env_idx, frame, mode="rgb"):
@@ -19,6 +20,13 @@ def update_frame(env_idx, frame, mode="rgb"):
         global _frame, _mode
         _frame = frame
         _mode = mode
+
+
+def _color_on():
+    try:
+        return bool(_shared is not None and _shared.get("_color", 0))
+    except Exception:
+        return False
 
 
 def _generate():
@@ -57,8 +65,23 @@ def _generate():
         time.sleep(1 / 30)
 
 
+@app.route("/toggle_color", methods=["POST", "GET"])
+def toggle_color():
+    """Flip full-color mode. Off = fast grayscale (no per-step cost). On = env 0
+    streams its raw NES frame in true color (small throughput cost while on)."""
+    if _shared is not None:
+        try:
+            _shared["_color"] = 0 if _shared.get("_color", 0) else 1
+        except Exception:
+            pass
+    return redirect("/")
+
+
 @app.route("/")
 def index():
+    on = _color_on()
+    label = "COLOR: ON (click for fast grayscale)" if on else "COLOR: OFF (click for full color)"
+    btn_bg = "#1b6" if on else "#333"
     return f"""
     <html><head>
     <title>Mario AI</title>
@@ -71,11 +94,17 @@ def index():
         img {{ border: 2px solid #1a1a1a; border-radius: 4px;
                image-rendering: pixelated; width: 512px; height: 512px }}
         p {{ color: #333; font-size: 11px }}
+        form {{ margin: 0 }}
+        button {{ background: {btn_bg}; color: #eee; border: 1px solid #444;
+                  font-family: monospace; font-size: 12px; padding: 8px 16px;
+                  border-radius: 4px; cursor: pointer; letter-spacing: 1px }}
+        button:hover {{ border-color: #888 }}
     </style>
     </head><body>
     <h2>Mario AI &mdash; {_n_envs} agents</h2>
     <img src="/stream">
-    <p>env #0 &bull; true color &bull; 30fps</p>
+    <form action="/toggle_color" method="post"><button type="submit">{label}</button></form>
+    <p>env #0 &bull; {'full color' if on else 'grayscale (obs)'} &bull; 30fps</p>
     </body></html>
     """
 
@@ -88,9 +117,10 @@ def stream():
     )
 
 
-def start(n_envs=20):
-    global _n_envs
+def start(n_envs=20, shared_weights=None):
+    global _n_envs, _shared
     _n_envs = n_envs
+    _shared = shared_weights
     t = threading.Thread(
         target=lambda: app.run(host="0.0.0.0", port=8080, debug=False),
         daemon=True,

@@ -121,9 +121,13 @@ class BestCheckpointCallback(BaseCallback):
 
     def _save_atomic(self, path):
         """Save to a temp file then os.replace → the final file is never seen
-        half-written (a mid-write corruption cost us a checkpoint before)."""
-        tmp = f"{path}.tmp"
-        self.model.save(tmp)  # SB3 appends .zip → writes {tmp}.zip
+        half-written (a mid-write corruption cost us a checkpoint before).
+        NOTE: the temp name must NOT contain a '.'-extension — SB3's model.save()
+        only appends '.zip' when the path has no suffix, so a name like
+        '..._best.tmp' would be written literally (no .zip) and the rename would
+        miss. Use a '_tmp' suffix so SB3 writes '..._best_tmp.zip'."""
+        tmp = f"{path}_tmp"
+        self.model.save(tmp)  # SB3 writes {tmp}.zip
         os.replace(f"{tmp}.zip", f"{path}.zip")
 
     def _on_step(self) -> bool:

@@ -38,7 +38,7 @@ def _load_config():
         CLIP_RANGE=0.2, ENT_COEF=0.05, N_STEPS=1024, BATCH_SIZE=1024,
         N_EPOCHS=4, OLLAMA_INTERVAL=5000, CHECKPOINT_FREQ=50_000,
         RESUME=False, START_STAGE=None, NET_ARCH=None, RUN_NAME="", RANDOM_STAGES=False, CURRICULUM=False, USE_IMPALA=False,
-        SPECIALIST=False, SPECIALIST_LEVEL=None, WARM_START_FROM="",
+        SPECIALIST=False, SPECIALIST_LEVEL=None, WARM_START_FROM="", TARGET_KL=None,
     )
     try:
         spec = importlib.util.spec_from_file_location("config", path)
@@ -497,7 +497,8 @@ def main(version="v0"):
         model = PPO.load(
             warm_from, env=env, device=device,
             learning_rate=CFG["LEARNING_RATE"], ent_coef=CFG["ENT_COEF"],
-            clip_range=CFG["CLIP_RANGE"], tensorboard_log="./tensorboard/",
+            clip_range=CFG["CLIP_RANGE"], target_kl=CFG.get("TARGET_KL"),
+            tensorboard_log="./tensorboard/",
         )
         model.set_env(env)
         remaining = CFG["TOTAL_TIMESTEPS"]

@@ -16,7 +16,7 @@ TRAIN_MODE = "pixel_v0"
 N_ENVS = "auto"
 
 # Total training steps (real 1-1 pixel run; CNN needs more steps than the MLP).
-TOTAL_TIMESTEPS = 40_000_000
+TOTAL_TIMESTEPS = 60_000_000
 
 # RESTART: was True during v2. Set False for v3 so WARM_START_FROM (the banked
 # 76.2% best) is used — NOT a resume of the collapsed v2 checkpoints. Flip True

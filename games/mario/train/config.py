@@ -21,12 +21,12 @@ TOTAL_TIMESTEPS = 60_000_000
 # RESTART: was True during v2. Set False for v3 so WARM_START_FROM (the banked
 # 76.2% best) is used — NOT a resume of the collapsed v2 checkpoints. Flip True
 # only if v3 itself crashes mid-run and needs to continue its own checkpoints.
-RESUME = True
+RESUME = False
 
 # IMPALA-CNN: bigger residual conv features extractor (capacity for many levels;
 # the default NatureCNN hit a ceiling and forgot levels). Fresh run when toggled
 # (architecture change — old small-net weights don't transfer).
-USE_IMPALA = False
+USE_IMPALA = True
 
 # --- SPECIALIST (per-level) training: one model per level, warm-started from the
 # previous level's final. Proven approach after generalist attempts all failed. ---
@@ -39,7 +39,7 @@ SPECIALIST_LEVEL = "1-1"      # the level this run trains (drives ckpt tag + fin
 # time clip_fraction fell to 0.07 + entropy shrank = policy OVER-narrowed and lost
 # its clearing behavior — opposite failure mode to v1's 0.5 blow-up). Warm-start
 # from the banked 76.2% best and RAISE entropy to keep exploration alive late.
-WARM_START_FROM = "models/specialists/mario_1-1_final.zip"
+WARM_START_FROM = ""
 
 # CnnPolicy: None = SB3 default NatureCNN + MLP head. (NET_ARCH sizes only the
 # MLP head after the conv stack for CnnPolicy.)
@@ -57,14 +57,14 @@ CURRICULUM = False
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
 # spec-1-1-v2: clean run after the collapse — flag-clear reward + safer hypers.
-RUN_NAME = "spec-1-1-v7"
+RUN_NAME = "spec-1-1-v8-impala"
 
 # PPO hyperparameters (pixel/CNN)
 # COLLAPSE HISTORY: v1 hit 71% then cratered (clip~0.5 = too-big updates). v2 hit
 # 76.2% then cratered (clip fell to 0.07 + entropy shrank = policy OVER-narrowed,
 # lost exploration). v3: warm-start from the 76.2% best, keep LR gentle, and RAISE
 # entropy back to 0.03 so the policy keeps enough exploration to not collapse late.
-LEARNING_RATE = 3.0e-5        # v5 fine-stage: smaller steps near the 97% peak (anti-overshoot)
+LEARNING_RATE = 1.0e-4        # v8 IMPALA COLD start: match small-net cold-start lr for a fair A/B (3e-5 too slow from scratch)
 CLIP_RANGE = 0.2
 ENT_COEF = 0.05               # v5: hold MORE entropy late so the policy cannot over-narrow into the collapse that capped v4 at 97%
 TARGET_KL = 0.02              # v5: early-stop any update batch exceeding this KL — hard brake on runaway policy narrowing

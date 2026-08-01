@@ -16,12 +16,12 @@ TRAIN_MODE = "pixel_v0"
 N_ENVS = "auto"
 
 # Total training steps (real 1-1 pixel run; CNN needs more steps than the MLP).
-TOTAL_TIMESTEPS = 30_000_000
+TOTAL_TIMESTEPS = 40_000_000
 
 # RESTART: was True during v2. Set False for v3 so WARM_START_FROM (the banked
 # 76.2% best) is used — NOT a resume of the collapsed v2 checkpoints. Flip True
 # only if v3 itself crashes mid-run and needs to continue its own checkpoints.
-RESUME = False
+RESUME = True
 
 # IMPALA-CNN: bigger residual conv features extractor (capacity for many levels;
 # the default NatureCNN hit a ceiling and forgot levels). Fresh run when toggled

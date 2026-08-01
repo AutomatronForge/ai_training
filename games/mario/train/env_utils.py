@@ -139,6 +139,15 @@ class MarioReward(gymnasium.Wrapper):
     STATUS_RANK     = {"small": 0, "tall": 1, "fireball": 2}
     KILL_SCORES     = {100, 200, 400, 500, 800, 1000, 2000, 4000, 8000}
     FIRE_ACTIONS    = {3, 4}  # SIMPLE_MOVEMENT run/B actions throw fireballs when fiery
+    # Checkpoint-crossing bonus (v7): a small ONE-TIME reward the first time max_x
+    # crosses each hotspot x in an episode. Placed at the measured death-hotspots so
+    # it incentivizes getting THROUGH the exact spots Mario keeps dying at — can't be
+    # farmed/camped (one-time per threshold), and small vs FLAG_CLEAR_BONUS(300) so it
+    # won't induce camping. Per-level; 1-1 seeded from the death histogram (1000 deaths).
+    CHECKPOINT_BONUS = 8.0
+    CHECKPOINTS_BY_LEVEL = {
+        "1-1": [675, 1125, 1425, 1725, 1875, 2025, 2475, 2775],
+    }
 
     def __init__(self, env, expose_rgb=False):
         super().__init__(env)
@@ -154,6 +163,7 @@ class MarioReward(gymnasium.Wrapper):
         self._ep_kills = 0
         self._ep_powerups = 0
         self._ep_oneups = 0
+        self._checkpoints_hit = set()  # v7: checkpoint x-values already rewarded this episode
 
     def _w(self, key, default):
         return get_shared_weights().get(key, default)
@@ -169,6 +179,7 @@ class MarioReward(gymnasium.Wrapper):
         self._ep_kills = 0
         self._ep_powerups = 0
         self._ep_oneups = 0
+        self._checkpoints_hit = set()
         return self.env.reset(**kwargs)
 
     def step(self, action):
@@ -180,6 +191,16 @@ class MarioReward(gymnasium.Wrapper):
         if x > self._max_x:
             reward += (x - self._max_x) * self._w("progress_bonus", 0.1)
             self._max_x = x
+
+        # ── checkpoint-crossing bonus (v7): one-time reward for getting THROUGH
+        # the measured death-hotspots for this level. Farm-proof (each threshold
+        # rewarded once per episode) and small vs the flag bonus. ──────────────
+        lvl_cp = f"{info.get('world', 1)}-{info.get('stage', 1)}"
+        for cp in self.CHECKPOINTS_BY_LEVEL.get(lvl_cp, ()):
+            if self._max_x >= cp and cp not in self._checkpoints_hit:
+                self._checkpoints_hit.add(cp)
+                reward += self.CHECKPOINT_BONUS
+
         if dx > 0:
             reward += dx * self._w("velocity_bonus", 0.05)
         if dx == 0:

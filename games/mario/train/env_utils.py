@@ -102,7 +102,10 @@ class MarioReward(gymnasium.Wrapper):
     COIN_BONUS      = 2.0     # per coin collected
     SCORE_BONUS     = 0.01    # per point of in-game score gained
     POWERUP_BONUS   = 15.0    # small->tall or tall->fireball (got a power-up)
-    POWERDOWN_PEN   = 10.0    # lost a power-up (hit while big) — softer than a death
+    POWERDOWN_PEN   = 20.0    # lost a power-up (hit while big). Raised 10->20 (v6 test):
+                              # values NOT getting hit more (staying big/fire = a death buffer),
+                              # to convert the last ~3% bad-luck deaths on an already-mastered
+                              # level. Kept << FLAG_CLEAR_BONUS(300) so it can't induce camping.
     KILL_BONUS      = 5.0     # stomped/killed an enemy (inferred from score jump)
     FIREBALL_USE    = 0.5     # fired while in fireball state (uses the power-up)
     DEATH_PENALTY   = 40.0    # base penalty for dying (episode ends w/o flag)

@@ -57,7 +57,7 @@ CURRICULUM = False
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
 # spec-1-1-v2: clean run after the collapse — flag-clear reward + safer hypers.
-RUN_NAME = "spec-1-1-v5"
+RUN_NAME = "spec-1-1-v6"
 
 # PPO hyperparameters (pixel/CNN)
 # COLLAPSE HISTORY: v1 hit 71% then cratered (clip~0.5 = too-big updates). v2 hit

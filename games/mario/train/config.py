@@ -57,7 +57,7 @@ CURRICULUM = False
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
 # spec-1-1-v2: clean run after the collapse — flag-clear reward + safer hypers.
-RUN_NAME = "spec-1-2"
+RUN_NAME = "spec-1-2b"
 
 # PPO hyperparameters (pixel/CNN)
 # COLLAPSE HISTORY: v1 hit 71% then cratered (clip~0.5 = too-big updates). v2 hit
@@ -66,7 +66,7 @@ RUN_NAME = "spec-1-2"
 # entropy back to 0.03 so the policy keeps enough exploration to not collapse late.
 LEARNING_RATE = 1.0e-4        # gentle steps (kept from v2)
 CLIP_RANGE = 0.2
-ENT_COEF = 0.03               # v2 used 0.02 and over-narrowed; nudge up to hold late-training exploration
+ENT_COEF = 0.08               # 1-2 warm-start entropy-collapsed at x~188 (froze, 0% for 1.6M steps); raise hard to force exploration past the early trap
 N_STEPS = 1024
 BATCH_SIZE = 1024
 N_EPOCHS = 4

@@ -39,7 +39,7 @@ SPECIALIST_LEVEL = "1-2"      # the level this run trains (drives ckpt tag + fin
 # time clip_fraction fell to 0.07 + entropy shrank = policy OVER-narrowed and lost
 # its clearing behavior — opposite failure mode to v1's 0.5 blow-up). Warm-start
 # from the banked 76.2% best and RAISE entropy to keep exploration alive late.
-WARM_START_FROM = "models/specialists/mario_1-1_final.zip"
+WARM_START_FROM = ""
 
 # CnnPolicy: None = SB3 default NatureCNN + MLP head. (NET_ARCH sizes only the
 # MLP head after the conv stack for CnnPolicy.)
@@ -57,7 +57,7 @@ CURRICULUM = False
 # Metrics run label. "" = auto (persists across RESUME=True, fresh on RESUME=False).
 # Set a name (e.g. "pixel-1-1-deathpenalty") to force a new comparable run in Grafana.
 # spec-1-1-v2: clean run after the collapse — flag-clear reward + safer hypers.
-RUN_NAME = "spec-1-2b"
+RUN_NAME = "spec-1-2-cold"
 
 # PPO hyperparameters (pixel/CNN)
 # COLLAPSE HISTORY: v1 hit 71% then cratered (clip~0.5 = too-big updates). v2 hit
@@ -66,7 +66,7 @@ RUN_NAME = "spec-1-2b"
 # entropy back to 0.03 so the policy keeps enough exploration to not collapse late.
 LEARNING_RATE = 1.0e-4        # gentle steps (kept from v2)
 CLIP_RANGE = 0.2
-ENT_COEF = 0.08               # 1-2 warm-start entropy-collapsed at x~188 (froze, 0% for 1.6M steps); raise hard to force exploration past the early trap
+ENT_COEF = 0.03               # cold-start 1-2 (warm-start from converged 1-1 froze at x~198, entropy bonus couldnt pry open a delta policy). Fresh policy explores naturally.
 N_STEPS = 1024
 BATCH_SIZE = 1024
 N_EPOCHS = 4

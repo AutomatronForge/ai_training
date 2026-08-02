@@ -19,9 +19,19 @@ Hardware now: **A10G (23GB), 32 vCPU, 124GB RAM**; `N_ENVS="auto"` → 31 envs, 
 - **1-2: `mario_1-2_final.zip` @ 89% peak (recent ~82-87%)** — MASTERED at the user's 80%×3 bar.
   This was the known-hard bottleneck; solved this session (see below). Small-net 1-2 ceiling ~89%.
 
-**Stopped here (2026-08-02, user call).** Training container is idle/stoppable. 1-2 was held
-running to try to beat the 89% peak; ~4M extra steps did not top it → 89% is the ceiling.
-**1-2 is ready to promote → warm-start 1-3 whenever training resumes (awaiting user go).**
+**Stopped here (2026-08-02, user call).** Training container is idle/stoppable.
+
+**1-3 IN PROGRESS (`spec-1-3-cold`, COLD start).** Cold-started (warm-start from a converged
+prior level FREEZES — proven on 1-2). Config left ready to RESUME 1-3: `SPECIALIST_LEVEL/
+START_STAGE="1-3"`, `WARM_START_FROM=""`, `RESUME=False`, `RUN_NAME="spec-1-3-cold"`, small net,
+lr 1e-4/ent 0.03/target_kl 0.02. Reached ~7M steps: **0 clears yet**, avg_max_x ~467, best_x ~1524
+(~60% of the level; flag x=2560), depth climbing monotonically (not stalled). **1-3 death histogram:
+dominant EARLY wall at x~300-400 (~30k deaths), secondary ~600-700** (the first gap/platform jump).
+No 1-3 model banked yet (0 clears). To continue: `docker compose up -d` resumes the fresh cold run
+(RESUME=False + no checkpoint = starts over — set `RESUME=True` to continue existing 1-3 checkpoints
+if any exist, else it restarts cold). **If it stalls at x~300-400**, seed `CHECKPOINTS_BY_LEVEL["1-3"]
+= [300,400,600,700,...]` from the histogram and/or add a `NOJUMP_BANDS_BY_LEVEL["1-3"]` if the
+`:8080` coord overlay shows a jump-into-chamber trap (the 1-2 playbook).
 
 ### How 1-2 was solved this session (the hard level)
 1. **Cold start + small net** (`USE_IMPALA=False`). An IMPALA-CNN A/B on 1-1 (v8) LOST —
@@ -152,13 +162,10 @@ SSH port-forward: `ssh -L 8080:localhost:8080 -L 6006:localhost:6006 -L 8082:loc
 
 ## What's Next
 
-1. **Promote 1-2 → warm-start 1-3** (awaiting user go; do NOT auto-promote). On go:
-   set `SPECIALIST_LEVEL/START_STAGE="1-3"`, `WARM_START_FROM="models/specialists/mario_1-2_final.zip"`,
-   `RUN_NAME="spec-1-3"`, `RESUME=False`, cold-recipe hypers (lr 1e-4, ent 0.03, target_kl 0.02),
-   `USE_IMPALA=False`; `docker compose down && up`; repoint `.monitor/last.json` to `spec-1-3`.
-   **Warm-start from a converged prior level tends to FREEZE** on a new layout (delta policy) —
-   if 1-3 stalls early at low x, fall back to a **COLD start** (what worked for 1-2). Seed a 1-3
-   `CHECKPOINTS_BY_LEVEL` list from its death histogram once deaths cluster.
+1. **Continue 1-3** (`spec-1-3-cold`, cold, in progress ~7M steps, 0 clears yet). `docker compose
+   up -d` to resume. Watch avg_max_x/clear% break past the x~300-400 early wall. If it stalls,
+   seed `CHECKPOINTS_BY_LEVEL["1-3"]` from the histogram (300/400/600/700) + a no-jump band if the
+   `:8080` overlay shows a jump-trap. Promote at 80%×3 (awaiting user go), save `mario_1-3_final.zip`.
 2. **1-4, then all 32** with the same per-level recipe (cold + checkpoint-bonus + per-level
    no-jump bands where a chamber/alcove traps the jump-nudge). Then a router (32 models → 1 agent).
 3. Phase 4: add Sonic via gym-retro under `games/sonic/`.
@@ -185,9 +192,10 @@ SSH port-forward: `ssh -L 8080:localhost:8080 -L 6006:localhost:6006 -L 8082:loc
 
 ## Known gaps / cautions
 
-- **`config.py` is left in 1-2 RECOVERY state**: `WARM_START_FROM=models/specialists/mario_1-2_recover_src.zip`,
-  `RESUME=False`, `RUN_NAME=spec-1-2-rec`, lr 3e-5/ent 0.05. **Before a fresh level, repoint
-  `WARM_START_FROM` (or clear it) and set the cold-recipe hypers** — otherwise it resumes 1-2's recovery.
+- **`config.py` is left on the 1-3 COLD run**: `SPECIALIST_LEVEL/START_STAGE="1-3"`,
+  `WARM_START_FROM=""`, `RESUME=False`, `RUN_NAME="spec-1-3-cold"`, lr 1e-4/ent 0.03. `up -d`
+  resumes 1-3 (fresh cold — no 1-3 checkpoints banked yet). For a DIFFERENT level, repoint
+  SPECIALIST_LEVEL/START_STAGE/RUN_NAME (+ WARM_START_FROM="" for cold).
 - Promotion bar per user = **80%×3** (the cron text still says 70%; user raised it).
 - `models/` is gitignored — all model deliverables live only on-box + `gdrive:mario_ai_backups`.
   Recovery source `mario_1-2_recover_src.zip` is a copy of the banked 62.8% best (kept for provenance).

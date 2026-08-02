@@ -10,6 +10,7 @@ _lock = threading.Lock()
 _n_envs = 20
 _mode = "rgb"  # "rgb" = true color, "viridis" = false color from grayscale
 _shared = None  # Manager dict shared with envs; holds "_color" (0/1) toggle
+_coords = {"x": 0, "y": 0, "world": 1, "stage": 1}  # env 0 live position
 
 
 def update_frame(env_idx, frame, mode="rgb"):
@@ -20,6 +21,15 @@ def update_frame(env_idx, frame, mode="rgb"):
         global _frame, _mode
         _frame = frame
         _mode = mode
+
+
+def update_coords(x, y, world=1, stage=1):
+    """Publish env 0's live position (from its info dict) for the overlay."""
+    with _lock:
+        _coords["x"] = int(x)
+        _coords["y"] = int(y)
+        _coords["world"] = int(world)
+        _coords["stage"] = int(stage)
 
 
 def _color_on():
@@ -35,6 +45,8 @@ def _generate():
         with _lock:
             frame = _frame
             mode = _mode
+            cx, cy = _coords["x"], _coords["y"]
+            cw, cs = _coords["world"], _coords["stage"]
 
         if frame is None:
             display = np.zeros((504, 504, 3), dtype=np.uint8)
@@ -54,6 +66,13 @@ def _generate():
                 # True RGB — just resize
                 rgb = frame if frame.shape[2] == 3 else cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
                 display = cv2.resize(rgb, (504, 504), interpolation=cv2.INTER_NEAREST)
+
+        # Burn env-0 live coords onto the frame (top-left), so the position is
+        # visible right on the video for calling out an area.
+        label = f"{cw}-{cs}  x={cx}  y={cy}"
+        cv2.rectangle(display, (0, 0), (504, 34), (0, 0, 0), -1)
+        cv2.putText(display, label, (8, 24), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7, (0, 255, 0), 2, cv2.LINE_AA)
 
         _, buf = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 90])
         yield (
@@ -75,6 +94,13 @@ def toggle_color():
         except Exception:
             pass
     return redirect("/")
+
+
+@app.route("/coords")
+def coords():
+    from flask import jsonify
+    with _lock:
+        return jsonify(dict(_coords))
 
 
 @app.route("/")
@@ -99,12 +125,24 @@ def index():
                   font-family: monospace; font-size: 12px; padding: 8px 16px;
                   border-radius: 4px; cursor: pointer; letter-spacing: 1px }}
         button:hover {{ border-color: #888 }}
+        #coords {{ font-size: 30px; color: #0f0; letter-spacing: 2px; font-weight: bold }}
     </style>
     </head><body>
-    <h2>Mario AI &mdash; {_n_envs} agents</h2>
+    <h2>Mario AI &mdash; {_n_envs} agents &bull; env #0</h2>
+    <div id="coords">--</div>
     <img src="/stream">
     <form action="/toggle_color" method="post"><button type="submit">{label}</button></form>
-    <p>env #0 &bull; {'full color' if on else 'grayscale (obs)'} &bull; 30fps</p>
+    <p>env #0 &bull; {'full color' if on else 'grayscale (obs)'} &bull; 30fps &bull; live x/y</p>
+    <script>
+    async function tick() {{
+      try {{
+        const r = await fetch('/coords'); const s = await r.json();
+        document.getElementById('coords').textContent =
+          `${{s.world}}-${{s.stage}}   x=${{s.x}}   y=${{s.y}}`;
+      }} catch(e) {{}}
+    }}
+    setInterval(tick, 200); tick();
+    </script>
     </body></html>
     """
 

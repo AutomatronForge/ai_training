@@ -347,6 +347,15 @@ class StatsCallback(BaseCallback):
         if self._tick % 4 == 0:
             try:
                 infos = self.locals.get("infos", [])
+                if infos:
+                    # Publish env 0's live coords (x/y + level) for the overlay.
+                    i0 = infos[0]
+                    viewer.update_coords(
+                        x=int(i0.get("x_pos", 0)),
+                        y=int(i0.get("y_pos", 0)),
+                        world=int(i0.get("world", 1)),
+                        stage=int(i0.get("stage", 1)),
+                    )
                 if infos and "rgb" in infos[0]:
                     frame = np.asarray(infos[0]["rgb"])
                     if frame.dtype != np.uint8:

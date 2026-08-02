@@ -4,41 +4,50 @@
 **Read first:** README.md, TENSORBOARD_GUIDE.md, this file.
 
 AI retro-game training (PPO + Ollama reward shaping). **Current focus: PIXEL/CNN
-training toward all 32 levels — now LIVE on a GPU (T4), after the RAM-observation agent
-hit a proven ceiling at World 1-2.**
+per-level SPECIALISTS toward beating the game — World 1-1 and 1-2 both mastered.**
 
-## Current Status (2026-07-30)
+## Current Status (2026-08-02)
 
-- **On the pixel/CNN path.** The RAM-observation agent (`ram_v0`) **mastered World 1-1**
-  but hit a **hard ceiling at 1-2** — established through ~20M steps and 7 falsified
-  interventions (pit reward, enemy window+reward, frame-skip, more time, net capacity,
-  corrected enemy-obs, long clean training). It reaches ~x850 of 1-2 (flag ~x2500),
-  cleared it exactly once (luck). Root cause: the agent can't see full level geometry
-  from 29 RAM values. **Conclusion: RAM+MLP topped out; pixel/CNN is the path to 32 levels.**
-- **Pixel path ported to full feature-parity** with the RAM framework (config wiring,
-  resume, `mario/*` metrics, deep reward shaping, curriculum stage support) and
-  **validated on CPU** (correctness only — CnnPolicy on CPU is slow ~765 fps).
-- **GPU pixel training is now LIVE.** Running on a **Tesla T4 (16GB) g4dn.2xlarge**
-  (8 vCPU): cuda stack up, `pixel_v0` on 1-1, `RESUME=False` (fresh run), `N_ENVS="auto"`
-  → **7 envs** (vCPUs-1). Steady **~433 fps**, checkpoints every 50K steps as
-  `mario_v0_ppo_*_steps.zip` in `models/`. **ETA ~6.4h for 10M steps** on this box.
-- **GPU is expected to sit near-idle (~2% util, 3.3/15GB mem)** — pixel training is
-  **CPU-bound on env-stepping**, not GPU-bound. The CNN is tiny; the T4 waits on the 7
-  CPU envs. So **N_ENVS scales with vCPU, not GPU.** Adding envs beyond ~vCPUs-1 on a
-  given box oversubscribes cores (fps flat/worse, raises SubprocVecEnv-deadlock risk).
-  To go faster, get **more vCPUs**, not a bigger GPU: g5.4xlarge (16 vCPU → ~15 envs,
-  ~930 fps, ~3h) / g5.8xlarge (32 vCPU → ~31 envs, ~1,920 fps, ~1.4h). (Est. ~62 fps/env,
-  linear; real scaling ~10-20% short of that.) N_ENVS change is NOT an obs-shape change —
-  can resume the latest checkpoint on a bigger box.
-- **NEXT (in-flight):** user is **switching to a larger-vCPU instance** (g5.4xlarge or
-  g5.8xlarge) via the console to speed the run up. On relaunch, `N_ENVS="auto"` re-sizes
-  to the new box automatically.
-- **Early learning signal to watch:** `mario/max_x_reached` on 1-1 plateaued at **~1656**
-  (flag ~x3161), 0 clears, deaths climbing — but this was only ~300K/10M steps in (~17 min),
-  too early to judge. The pivotal question is whether pixel obs clears 1-1 and breaks the
-  RAM 1-2 ceiling; expect an answer well before 10M steps.
-- **Hardware note:** the box the framework was *developed* on was CPU-only (16 physical /
-  32 vCPU / 61 GB RAM). Current training box is the T4 GPU above (or its g5 successor).
+**Approach = one small-net (NatureCNN) PPO specialist per level**, cold-started per level
+(warm-start from a *converged* prior level FREEZES on a structurally different layout — see
+lessons). Proving out World 1 (1-1→1-4) as PoC before all 32. Deaths allowed (beat-the-game).
+Hardware now: **A10G (23GB), 32 vCPU, 124GB RAM**; `N_ENVS="auto"` → 31 envs, ~1,090–1,750 fps.
+
+**Deliverables (all in `models/specialists/`, backed up to gdrive:mario_ai_backups):**
+- **1-1: `mario_1-1_final.zip` @ 97.5%** — mastered. Small-net ceiling ~97.5% (remaining
+  ~2.5% = scattered random-enemy-timing deaths). **DEPLOY STOCHASTIC** (argmax deadlocks: 0/10 vs 10/10).
+- **1-2: `mario_1-2_final.zip` @ 89% peak (recent ~82-87%)** — MASTERED at the user's 80%×3 bar.
+  This was the known-hard bottleneck; solved this session (see below). Small-net 1-2 ceiling ~89%.
+
+**Stopped here (2026-08-02, user call).** Training container is idle/stoppable. 1-2 was held
+running to try to beat the 89% peak; ~4M extra steps did not top it → 89% is the ceiling.
+**1-2 is ready to promote → warm-start 1-3 whenever training resumes (awaiting user go).**
+
+### How 1-2 was solved this session (the hard level)
+1. **Cold start + small net** (`USE_IMPALA=False`). An IMPALA-CNN A/B on 1-1 (v8) LOST —
+   bigger net was less sample-efficient, no ceiling break. Ceiling is the reactive-CNN
+   *method*, not capacity. Keep `USE_IMPALA=False`.
+2. **Checkpoint-crossing bonus** (`CHECKPOINTS_BY_LEVEL`, +8 one-time per measured death-wall)
+   — seeded 1-2 from its death histogram: 450/600/750/900/1050/1200/1500/1950/2308 (flag x2560).
+3. **Stuck-escape retreat window** (`STUCK_ESCAPE_WINDOW=60`) — once wedged, briefly waive the
+   stuck penalty + tolerate a backward step so Mario can back up to run-jump a pipe. Farm-proof.
+4. **No-jump band** (`NOJUMP_BANDS_BY_LEVEL={"1-2":[(930,1040)]}`, `GROUND_Y`, `RUN_LOW_BONUS`)
+   — the KEY fix. At x~978 there's a CHAMBER Mario kept JUMPING UP INTO and bouncing on the
+   ceiling; the generic wall/pit jump-nudge was luring him in. In the band we suppress ALL jump
+   rewards and reward forward progress while grounded (run under, don't jump in). This broke the
+   x~978 logjam (0% → clears), moving the wall to an enemy at x~1180, which it then learned.
+5. **Collapse + recovery**: at ~14.95M steps 1-2 over-narrowed (entropy→0, frozen at x198,
+   recent 63%→0%). Recovered by warm-starting from the peak-protector's banked 62.8% best with
+   anti-collapse guardrails (lr 3e-5, ent 0.05, target_kl 0.02) → climbed back to 89%.
+
+- **Live coordinate overlay** added to `viewer.py` (`:8080`): big x/y readout + `1-2` label
+  burned on the frame, plus `/coords` JSON. Used to diagnose the chamber vs pit visually.
+- **Peak-protector** (`BestCheckpointCallback` in `train_v0.py`) saves best-by-recent-clear%
+  to `models/best/` + `models/specialists/*_best_fallback.zip`, atomic, prune-immune, seeds
+  high-water from on-disk `.pct` so a restart can't clobber a better model. This is what made
+  the collapse recoverable.
+- **Off-box backups**: `backup_models.sh` (repo root) → rclone COPY (append-only, never deletes
+  remote) of models/best + specialists + archive to `gdrive:mario_ai_backups`. Run every ~20 min.
 
 ## Repo Structure
 
@@ -143,21 +152,43 @@ SSH port-forward: `ssh -L 8080:localhost:8080 -L 6006:localhost:6006 -L 8082:loc
 
 ## What's Next
 
-1. **GPU pixel training is running** (see Current Status). Let `pixel_v0` train on 1-1 to
-   competence — the real test of whether pixel obs beats the RAM 1-2 ceiling. Watch
-   `mario/max_x_reached` break past ~1656 and `mario/clears_total` go positive.
-2. **If pixel clears 1-2** → advance the curriculum (`START_STAGE="1-3"`, then toward v3)
-   and re-establish the monitoring loop (health checks + Slack + autonomous decision rules).
-3. **v3 (all 32 levels)** with pixel obs + big step budget once the curriculum proves out.
-4. Phase 4: add Sonic via gym-retro under `games/sonic/`.
+1. **Promote 1-2 → warm-start 1-3** (awaiting user go; do NOT auto-promote). On go:
+   set `SPECIALIST_LEVEL/START_STAGE="1-3"`, `WARM_START_FROM="models/specialists/mario_1-2_final.zip"`,
+   `RUN_NAME="spec-1-3"`, `RESUME=False`, cold-recipe hypers (lr 1e-4, ent 0.03, target_kl 0.02),
+   `USE_IMPALA=False`; `docker compose down && up`; repoint `.monitor/last.json` to `spec-1-3`.
+   **Warm-start from a converged prior level tends to FREEZE** on a new layout (delta policy) —
+   if 1-3 stalls early at low x, fall back to a **COLD start** (what worked for 1-2). Seed a 1-3
+   `CHECKPOINTS_BY_LEVEL` list from its death histogram once deaths cluster.
+2. **1-4, then all 32** with the same per-level recipe (cold + checkpoint-bonus + per-level
+   no-jump bands where a chamber/alcove traps the jump-nudge). Then a router (32 models → 1 agent).
+3. Phase 4: add Sonic via gym-retro under `games/sonic/`.
 
-## Known gaps
+## Reward-shaping mechanisms (per-level, in `env_utils.py` MarioReward)
 
-- Pixel training is **live on GPU (T4)** but **not yet run to competence** — no clears
-  of 1-1 yet as of ~300K steps.
-- `models/` (GPU) now has `mario_v0_ppo_*_steps.zip` checkpoints from the live run
-  (matches the resume glob).
-- The autonomous monitoring loop (10-min cron → Slack) is currently **paused/deleted** —
-  re-create it now that GPU training is live if you want hands-off monitoring.
-- **Watch for SubprocVecEnv deadlock** on the long run (documented failure mode: one core
-  pegged, logs freeze) — recover with `docker compose down && up` (NOT `restart`).
+- `FLAG_CLEAR_BONUS=300` (dominant terminal reward), `DEATH_PENALTY=40`+progress-scale,
+  `POWERDOWN_PEN=20`, `COIN/SCORE/POWERUP/KILL` bonuses, hazard-aware wall/pit/enemy jump nudges.
+- `CHECKPOINTS_BY_LEVEL` — one-time +8 per measured death-wall x (from the death histogram). Per-level.
+- `STUCK_ESCAPE_WINDOW=60` — retreat-to-jump escape for pipe wedges (waive stuck penalty + tolerate
+  one backward step; forward progress closes it; backtracking never rewarded).
+- `NOJUMP_BANDS_BY_LEVEL` + `GROUND_Y` + `RUN_LOW_BONUS` — x-bands where jumping traps the agent in a
+  chamber; suppress jump rewards there and reward running forward while grounded. **The 1-2 unlock.**
+- To find a level's walls: query `metrics/mario.db` `episodes` (death_x / max_x / status) for the run.
+
+## Anti-collapse + recovery playbook
+
+- Collapse signatures: `clip_fraction→~0.5` = updates too big (lower lr); `clip→~0.07`+`entropy→0`
+  = policy over-narrowed/frozen (raise entropy / target_kl). Both cliff recent-clear% to 0%.
+- Recover: warm-start from the peak-protector's banked best (`models/best/mario_v0_<lvl>_best.zip`,
+  its `.pct` shows the banked clear%) with `RESUME=False`, guardrails **lr 3e-5, ent 0.05,
+  target_kl 0.02**, a fresh `RUN_NAME`. Stage the best to a stable path first (a live prune could
+  touch `models/best/`). This recovered 1-2 from a full freeze back to 89%.
+
+## Known gaps / cautions
+
+- **`config.py` is left in 1-2 RECOVERY state**: `WARM_START_FROM=models/specialists/mario_1-2_recover_src.zip`,
+  `RESUME=False`, `RUN_NAME=spec-1-2-rec`, lr 3e-5/ent 0.05. **Before a fresh level, repoint
+  `WARM_START_FROM` (or clear it) and set the cold-recipe hypers** — otherwise it resumes 1-2's recovery.
+- Promotion bar per user = **80%×3** (the cron text still says 70%; user raised it).
+- `models/` is gitignored — all model deliverables live only on-box + `gdrive:mario_ai_backups`.
+  Recovery source `mario_1-2_recover_src.zip` is a copy of the banked 62.8% best (kept for provenance).
+- SubprocVecEnv deadlock recovery = `docker compose down && up` (NOT `restart`).

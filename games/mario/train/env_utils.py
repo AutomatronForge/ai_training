@@ -147,7 +147,33 @@ class MarioReward(gymnasium.Wrapper):
     CHECKPOINT_BONUS = 8.0
     CHECKPOINTS_BY_LEVEL = {
         "1-1": [675, 1125, 1425, 1725, 1875, 2025, 2475, 2775],
+        # 1-2 seeded from the spec-1-2-cold death histogram (14.3k deaths): the
+        # dominant wall is x~900 (5871 deaths), with earlier clusters at 600/750
+        # and later ones at 1050/1200. Checkpoints reward getting THROUGH each
+        # wall in sequence, then a few deep markers toward the flag (x=2560).
+        "1-2": [450, 600, 750, 900, 1050, 1200, 1500, 1950, 2308],
     }
+    # Stuck-escape retreat window: 1-2 (and later levels) have tall pipes/gaps that
+    # need a RETREAT-then-running-jump. The plain forward-only shaping wedges the
+    # agent nose-first into a pipe (backing up loses velocity reward and doesn't
+    # advance _max_x, so it never learns to step back). Once wedged past
+    # stuck_threshold, open a short window where we (a) WAIVE the stuck penalty and
+    # (b) tolerate a small backward step (no penalty, no reward) so re-approaching
+    # for a jump isn't a net loss. The window closes the instant it makes new
+    # forward progress. Never pays for general backtracking → cannot be farmed.
+    STUCK_ESCAPE_WINDOW = 60  # frames of tolerated retreat after getting wedged
+
+    # NO-JUMP BANDS: x-ranges where the generic "wall/pit ahead → jump" nudge is
+    # WRONG and traps the agent. 1-2 has a chamber/alcove around x~980 that Mario
+    # keeps JUMPING UP INTO and getting stuck bouncing on the ceiling — the right
+    # play is to stay LOW and run underneath. In these bands we (a) suppress the
+    # jump nudge and (b) reward FORWARD progress while grounded (low), teaching
+    # "run under, don't jump in". y_pos >= GROUND_Y means grounded (ground ~79).
+    NOJUMP_BANDS_BY_LEVEL = {
+        "1-2": [(930, 1040)],
+    }
+    GROUND_Y = 70          # y_pos >= this ≈ grounded/low (airborne reads lower)
+    RUN_LOW_BONUS = 0.6    # per forward step taken LOW through a no-jump band
 
     def __init__(self, env, expose_rgb=False):
         super().__init__(env)
@@ -155,6 +181,7 @@ class MarioReward(gymnasium.Wrapper):
         self._max_x = 0
         self._prev_x = 0
         self._stuck_steps = 0
+        self._escape_steps = 0  # frames left in the stuck-escape retreat window
         self._prev_score = 0
         self._prev_coins = 0
         self._prev_status = "small"
@@ -172,6 +199,7 @@ class MarioReward(gymnasium.Wrapper):
         self._max_x = 0
         self._prev_x = 0
         self._stuck_steps = 0
+        self._escape_steps = 0
         self._prev_score = 0
         self._prev_coins = 0
         self._prev_status = "small"
@@ -188,9 +216,11 @@ class MarioReward(gymnasium.Wrapper):
         dx = x - self._prev_x
 
         # ── movement shaping (coach-tuned) ────────────────────────────────
-        if x > self._max_x:
+        made_progress = x > self._max_x
+        if made_progress:
             reward += (x - self._max_x) * self._w("progress_bonus", 0.1)
             self._max_x = x
+            self._escape_steps = 0  # forward progress closes any escape window
 
         # ── checkpoint-crossing bonus (v7): one-time reward for getting THROUGH
         # the measured death-hotspots for this level. Farm-proof (each threshold
@@ -201,23 +231,52 @@ class MarioReward(gymnasium.Wrapper):
                 self._checkpoints_hit.add(cp)
                 reward += self.CHECKPOINT_BONUS
 
+        # Stuck / velocity handling with a RETREAT-escape window.
+        #  - forward (dx>0): normal velocity bonus, clear stuck counter.
+        #  - dx==0: accumulate stuck; once past threshold, penalize UNLESS an
+        #    escape window is open.
+        #  - once wedged past threshold, OPEN a short escape window during which
+        #    the stuck penalty is waived and a backward step is tolerated (no
+        #    penalty, no reward) so Mario can back up to jump a pipe. Forward
+        #    progress (handled above) closes the window immediately.
+        #    dx<0 outside the window simply earns nothing (as before) — never a
+        #    reward for backtracking, so it can't be farmed.
         if dx > 0:
             reward += dx * self._w("velocity_bonus", 0.05)
-        if dx == 0:
-            self._stuck_steps += 1
-        else:
             self._stuck_steps = 0
-        if self._stuck_steps > self._w("stuck_threshold", 90):
+        elif dx == 0:
+            self._stuck_steps += 1
+
+        if self._stuck_steps > self._w("stuck_threshold", 90) and self._escape_steps == 0:
+            # just got wedged and not already escaping → open the retreat window
+            self._escape_steps = self.STUCK_ESCAPE_WINDOW
+
+        if self._escape_steps > 0:
+            self._escape_steps -= 1  # in window: no stuck penalty, retreat tolerated
+        elif dx == 0 and self._stuck_steps > self._w("stuck_threshold", 90):
             reward -= self._w("stuck_penalty", 0.5)
 
         # Level-agnostic jump nudge: reward jumping when a WALL or a PIT is just
-        # ahead (pits are the exact skill the mid-game levels need).
-        wall_ahead, pit_ahead = self._hazard_ahead(x, info.get("y_pos", 0))
+        # ahead (pits are the exact skill the mid-game levels need). EXCEPT inside
+        # a NO-JUMP BAND for this level, where jumping traps the agent in a
+        # chamber/alcove — there we suppress the nudge and instead reward running
+        # forward while grounded (low), teaching "run under, don't jump in".
+        y_pos = info.get("y_pos", 0)
+        wall_ahead, pit_ahead = self._hazard_ahead(x, y_pos)
         near_pipe = wall_ahead
-        if wall_ahead and action in (2, 3, 4, 5):
-            reward += 0.5
-        if pit_ahead and action in (2, 3, 4, 5):
-            reward += 0.7
+        lvl_band = f"{info.get('world', 1)}-{info.get('stage', 1)}"
+        in_nojump = any(lo <= x <= hi
+                        for lo, hi in self.NOJUMP_BANDS_BY_LEVEL.get(lvl_band, ()))
+        if in_nojump:
+            # Don't lure Mario upward here. Reward forward progress while LOW
+            # (grounded), so the policy learns to run through underneath.
+            if dx > 0 and y_pos >= self.GROUND_Y:
+                reward += self.RUN_LOW_BONUS
+        else:
+            if wall_ahead and action in (2, 3, 4, 5):
+                reward += 0.5
+            if pit_ahead and action in (2, 3, 4, 5):
+                reward += 0.7
 
         # ── score / coins ─────────────────────────────────────────────────
         score = info.get("score", 0)
@@ -275,11 +334,13 @@ class MarioReward(gymnasium.Wrapper):
         if bool(info.get("flag_get", False)):
             reward += self.FLAG_CLEAR_BONUS
 
-        # enemy-dodge / jump bonuses (coach-tuned)
-        if self._enemy_near(x) and action in (2, 3, 4, 5):
-            reward += 0.5  # enemies are a common mid-level blocker
-        if not near_pipe and action in (2, 3, 4, 5):
-            reward += self._w("jump_bonus", 0.05)
+        # enemy-dodge / jump bonuses (coach-tuned). Suppressed inside a no-jump
+        # band so we never nudge Mario upward into the chamber trap there.
+        if not in_nojump:
+            if self._enemy_near(x) and action in (2, 3, 4, 5):
+                reward += 0.5  # enemies are a common mid-level blocker
+            if not near_pipe and action in (2, 3, 4, 5):
+                reward += self._w("jump_bonus", 0.05)
 
         self._prev_x = x
         self._prev_score = score
